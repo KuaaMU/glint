@@ -1,0 +1,325 @@
+/* Glint Focus-First 极简截屏透视样式 */
+
+:root {
+  --bg-dim: rgba(0, 0, 0, 0.45);
+  --fresnel-border: rgba(56, 189, 248, 0.85);
+  --fresnel-glow: rgba(56, 189, 248, 0.35);
+  --pill-bg: rgba(15, 23, 42, 0.88);
+  --pill-border: rgba(255, 255, 255, 0.12);
+  --pill-text: #f1f5f9;
+  --pill-muted: #94a3b8;
+  --accent-cyan: #38bdf8;
+  --accent-blue: #0284c7;
+  --accent-indigo: #4f46e5;
+  --font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+html, body {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  background: transparent;
+  font-family: var(--font-family);
+  font-size: 13px;
+  color: var(--pill-text);
+  cursor: crosshair;
+}
+
+.snipping-container {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+}
+
+/* 分层 Canvas 绝对定位全屏覆盖 */
+.layer-canvas {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  pointer-events: none;
+}
+
+#draw-canvas {
+  pointer-events: auto;
+  cursor: crosshair;
+}
+
+/* 屏幕中央未拉框时的操作引导 */
+.snip-hint {
+  position: absolute;
+  top: 40px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(15, 23, 42, 0.82);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: #cbd5e1;
+  padding: 7px 16px;
+  border-radius: 9999px;
+  font-size: 12px;
+  letter-spacing: 0.3px;
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.35);
+  pointer-events: none;
+  transition: opacity 0.2s ease, transform 0.2s ease;
+  z-index: 50;
+}
+
+.snip-hint kbd {
+  background: rgba(255, 255, 255, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 4px;
+  padding: 1px 5px;
+  font-size: 11px;
+  font-family: inherit;
+  color: #fff;
+}
+
+/* 选区交互框 (1px 纤细发光菲涅尔边框) */
+.selection-box {
+  position: absolute;
+  border: 1px solid var(--fresnel-border);
+  box-shadow: 0 0 12px var(--fresnel-glow), inset 0 0 4px rgba(56, 189, 248, 0.15);
+  cursor: move;
+  z-index: 100;
+  pointer-events: auto;
+}
+
+/* 尺寸角标 */
+.dim-badge {
+  position: absolute;
+  top: -26px;
+  left: 0;
+  background: rgba(15, 23, 42, 0.85);
+  backdrop-filter: blur(8px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: #94a3b8;
+  font-size: 11px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  padding: 2px 7px;
+  border-radius: 5px;
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+/* 8 方向调整手柄 */
+.resize-handle {
+  position: absolute;
+  width: 9px;
+  height: 9px;
+  background: #fff;
+  border: 1.5px solid var(--accent-cyan);
+  border-radius: 2px;
+  box-shadow: 0 0 4px rgba(0, 0, 0, 0.5);
+  z-index: 105;
+}
+
+.handle-nw { top: -4.5px; left: -4.5px; cursor: nwse-resize; }
+.handle-n  { top: -4.5px; left: calc(50% - 4.5px); cursor: ns-resize; }
+.handle-ne { top: -4.5px; right: -4.5px; cursor: nesw-resize; }
+.handle-e  { top: calc(50% - 4.5px); right: -4.5px; cursor: ew-resize; }
+.handle-se { bottom: -4.5px; right: -4.5px; cursor: nwse-resize; }
+.handle-s  { bottom: -4.5px; left: calc(50% - 4.5px); cursor: ns-resize; }
+.handle-sw { bottom: -4.5px; left: -4.5px; cursor: nesw-resize; }
+.handle-w  { top: calc(50% - 4.5px); left: -4.5px; cursor: ew-resize; }
+
+/* Focus-First 药丸操作胶囊 */
+.focus-pill {
+  position: absolute;
+  bottom: -48px;
+  right: 0;
+  background: var(--pill-bg);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  border: 1px solid var(--pill-border);
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.45), 0 0 0 1px rgba(255, 255, 255, 0.04);
+  border-radius: 9999px;
+  padding: 4px 6px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  z-index: 120;
+  cursor: default;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  white-space: nowrap;
+}
+
+/* 处于顶部/翻转状态时的样式 */
+.focus-pill.docked-top {
+  bottom: auto;
+  top: -48px;
+}
+
+.pill-main {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.pill-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: transparent;
+  border: none;
+  color: var(--pill-text);
+  font-size: 12.5px;
+  font-weight: 500;
+  font-family: inherit;
+  padding: 5px 10px;
+  border-radius: 9999px;
+  cursor: pointer;
+  outline: none;
+  transition: all 0.15s ease;
+}
+
+.pill-btn.primary-btn {
+  background: linear-gradient(135deg, var(--accent-blue), var(--accent-indigo));
+  color: #ffffff;
+  padding: 5px 12px;
+  box-shadow: 0 2px 8px rgba(14, 165, 233, 0.35);
+}
+
+.pill-btn.primary-btn:hover {
+  background: linear-gradient(135deg, #0284c7, #6366f1);
+  box-shadow: 0 4px 12px rgba(14, 165, 233, 0.5);
+  transform: translateY(-0.5px);
+}
+
+.pill-btn.primary-btn kbd {
+  background: rgba(255, 255, 255, 0.22);
+  border-radius: 4px;
+  padding: 1px 5px;
+  font-size: 10px;
+  font-weight: 600;
+  margin-left: 2px;
+}
+
+.pill-btn.secondary-btn {
+  background: rgba(255, 255, 255, 0.08);
+  color: #e2e8f0;
+}
+
+.pill-btn.secondary-btn:hover {
+  background: rgba(255, 255, 255, 0.15);
+  color: #fff;
+}
+
+.pill-btn.secondary-btn.active {
+  background: rgba(56, 189, 248, 0.2);
+  color: var(--accent-cyan);
+  border: 1px solid rgba(56, 189, 248, 0.35);
+}
+
+.pill-btn.icon-only-btn {
+  padding: 5px 8px;
+  color: var(--pill-muted);
+}
+
+.pill-btn.icon-only-btn:hover {
+  background: rgba(239, 68, 68, 0.18);
+  color: #f87171;
+}
+
+/* 涂鸦扩展抽屉 */
+.draw-drawer {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding-left: 2px;
+  animation: drawerSlide 0.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes drawerSlide {
+  from {
+    opacity: 0;
+    transform: scaleX(0.85);
+  }
+  to {
+    opacity: 1;
+    transform: scaleX(1);
+  }
+}
+
+.drawer-divider {
+  width: 1px;
+  height: 16px;
+  background: rgba(255, 255, 255, 0.12);
+  margin: 0 2px;
+}
+
+.tool-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.tool-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  background: transparent;
+  border: none;
+  color: var(--pill-muted);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.tool-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+}
+
+.tool-btn.active {
+  background: rgba(56, 189, 248, 0.2);
+  color: var(--accent-cyan);
+}
+
+.tool-btn.undo-btn:hover {
+  color: #facc15;
+}
+
+/* 调色板圆点 */
+.color-palette {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0 3px;
+}
+
+.color-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background-color: var(--c);
+  cursor: pointer;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.4);
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.color-dot:hover {
+  transform: scale(1.2);
+}
+
+.color-dot.active {
+  transform: scale(1.25);
+  box-shadow: 0 0 0 2px #fff, 0 0 6px var(--c);
+}

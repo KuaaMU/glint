@@ -40,6 +40,20 @@
         "resizable": true,
         "center": true,
         "visible": false
+      },
+      {
+        "title": "Glint 截屏透视",
+        "label": "snipping",
+        "url": "snipping.html",
+        "width": 1920,
+        "height": 1080,
+        "decorations": false,
+        "transparent": true,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "resizable": false,
+        "shadow": false,
+        "visible": false
       }
     ],
     "security": {

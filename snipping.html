@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Glint 截屏透视</title>
+    <link rel="stylesheet" href="/src/snipping.css" />
+    <script type="module" src="/src/snipping.ts" defer></script>
+  </head>
+  <body>
+    <div id="snipping-container" class="snipping-container">
+      <!-- 底图渲染画布与遮罩画布 -->
+      <canvas id="bg-canvas" class="layer-canvas"></canvas>
+      <canvas id="mask-canvas" class="layer-canvas"></canvas>
+      <canvas id="draw-canvas" class="layer-canvas"></canvas>
+
+      <!-- 选区交互框 -->
+      <div id="selection-box" class="selection-box" style="display: none;">
+        <!-- 尺寸角标 -->
+        <div id="dim-badge" class="dim-badge">0 × 0</div>
+
+        <!-- 8 方向拖拽微调把手 -->
+        <div class="resize-handle handle-nw" data-handle="nw"></div>
+        <div class="resize-handle handle-n" data-handle="n"></div>
+        <div class="resize-handle handle-ne" data-handle="ne"></div>
+        <div class="resize-handle handle-e" data-handle="e"></div>
+        <div class="resize-handle handle-se" data-handle="se"></div>
+        <div class="resize-handle handle-s" data-handle="s"></div>
+        <div class="resize-handle handle-sw" data-handle="sw"></div>
+        <div class="resize-handle handle-w" data-handle="w"></div>
+
+        <!-- Focus-First 极简药丸操作胶囊 -->
+        <div id="focus-pill" class="focus-pill">
+          <!-- 核心行动按钮 (默认立即可见) -->
+          <div class="pill-main">
+            <button id="btn-submit-explain" class="pill-btn primary-btn" title="立即透视分析 (Enter)">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"/>
+              </svg>
+              <span>透视</span>
+              <kbd>Enter</kbd>
+            </button>
+
+            <button id="btn-toggle-draw" class="pill-btn secondary-btn" title="展开/收起涂鸦标注工具">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/>
+                <path d="m15 5 4 4"/>
+              </svg>
+              <span>涂鸦</span>
+            </button>
+
+            <button id="btn-cancel" class="pill-btn icon-only-btn" title="退出截屏 (Esc)">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                <line x1="18" y1="6" x2="6" y2="18"></line>
+                <line x1="6" y1="6" x2="18" y2="18"></line>
+              </svg>
+            </button>
+          </div>
+
+          <!-- 平滑展开的微型标注工具条 -->
+          <div id="draw-drawer" class="draw-drawer" style="display: none;">
+            <div class="drawer-divider"></div>
+
+            <!-- 工具模式切换 -->
+            <div class="tool-group">
+              <button class="tool-btn active" data-tool="pen" title="画笔 (自由手绘)">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M12 19l7-7 3 3-7 7-3-3z"/>
+                  <path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z"/>
+                  <path d="M2 2l7.586 7.586"/>
+                  <circle cx="11" cy="11" r="2"/>
+                </svg>
+              </button>
+              <button class="tool-btn" data-tool="rect" title="矩形框">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <rect width="18" height="18" x="3" y="3" rx="2"/>
+                </svg>
+              </button>
+              <button class="tool-btn" data-tool="arrow" title="指示箭头">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <line x1="5" y1="19" x2="19" y2="5"/>
+                  <polyline points="9 5 19 5 19 15"/>
+                </svg>
+              </button>
+            </div>
+
+            <div class="drawer-divider"></div>
+
+            <!-- 调色板 -->
+            <div class="color-palette">
+              <span class="color-dot active" data-color="#38bdf8" style="--c:#38bdf8;" title="微光青"></span>
+              <span class="color-dot" data-color="#f43f5e" style="--c:#f43f5e;" title="荧光红"></span>
+              <span class="color-dot" data-color="#fbbf24" style="--c:#fbbf24;" title="亮橙黄"></span>
+              <span class="color-dot" data-color="#34d399" style="--c:#34d399;" title="薄荷绿"></span>
+            </div>
+
+            <div class="drawer-divider"></div>
+
+            <!-- 撤销按钮 -->
+            <button id="btn-undo-draw" class="tool-btn undo-btn" title="撤销上一次标注 (Ctrl+Z)">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M3 7v6h6"/>
+                <path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13"/>
+              </svg>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 截屏快捷引导提示 (选区未绘制时居中温和展示) -->
+      <div id="snip-hint" class="snip-hint">
+        拖拽鼠标框选屏幕区域 · 按 <kbd>Esc</kbd> 退出
+      </div>
+    </div>
+  </body>
+</html>

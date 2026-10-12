@@ -48,8 +48,9 @@ pub fn spawn_global_hotkeys(
     app_handle: AppHandle,
     _trigger_fn: fn(&AppHandle),
     _toggle_fn: fn(&AppHandle),
+    _snipping_fn: fn(&AppHandle),
 ) {
-    // macOS 全局热键挂载 (Cmd+Option+Q 与 Cmd+Option+D)
+    // macOS 全局热键挂载 (Cmd+Option+Q, Cmd+Option+D, Cmd+Option+W)
     println!("[macOS] Glint hotkeys initialized for macOS");
 }
 
@@ -59,4 +60,5 @@ pub fn spawn_global_hotkeys(
     _app_handle: AppHandle,
     _trigger_fn: fn(&AppHandle),
     _toggle_fn: fn(&AppHandle),
+    _snipping_fn: fn(&AppHandle),
 ) {}

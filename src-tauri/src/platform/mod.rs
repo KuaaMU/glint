@@ -57,17 +57,18 @@ pub fn spawn_global_hotkeys(
     app_handle: AppHandle,
     trigger_fn: fn(&AppHandle),
     toggle_fn: fn(&AppHandle),
+    snipping_fn: fn(&AppHandle),
 ) {
     #[cfg(target_os = "windows")]
     {
-        windows::spawn_global_hotkeys(app_handle, trigger_fn, toggle_fn);
+        windows::spawn_global_hotkeys(app_handle, trigger_fn, toggle_fn, snipping_fn);
     }
     #[cfg(target_os = "macos")]
     {
-        macos::spawn_global_hotkeys(app_handle, trigger_fn, toggle_fn);
+        macos::spawn_global_hotkeys(app_handle, trigger_fn, toggle_fn, snipping_fn);
     }
     #[cfg(target_os = "linux")]
     {
-        linux::spawn_global_hotkeys(app_handle, trigger_fn, toggle_fn);
+        linux::spawn_global_hotkeys(app_handle, trigger_fn, toggle_fn, snipping_fn);
     }
 }

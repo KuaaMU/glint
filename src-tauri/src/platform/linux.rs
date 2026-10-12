@@ -53,6 +53,7 @@ pub fn spawn_global_hotkeys(
     app_handle: AppHandle,
     _trigger_fn: fn(&AppHandle),
     _toggle_fn: fn(&AppHandle),
+    _snipping_fn: fn(&AppHandle),
 ) {
     // Linux 全局热键线程：XGrabKey (X11) 或 org.freedesktop.portal.GlobalShortcuts (Wayland)
     println!("[Linux] Glint hotkeys initialized for Linux");
@@ -64,4 +65,5 @@ pub fn spawn_global_hotkeys(
     _app_handle: AppHandle,
     _trigger_fn: fn(&AppHandle),
     _toggle_fn: fn(&AppHandle),
+    _snipping_fn: fn(&AppHandle),
 ) {}

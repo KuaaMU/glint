@@ -81,6 +81,7 @@ pub fn spawn_global_hotkeys(
     app_handle: AppHandle,
     trigger_fn: fn(&AppHandle),
     toggle_fn: fn(&AppHandle),
+    snipping_fn: fn(&AppHandle),
 ) {
     std::thread::spawn(move || {
         use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
@@ -93,6 +94,8 @@ pub fn spawn_global_hotkeys(
             let _ = RegisterHotKey(std::ptr::null_mut(), 101, (MOD_ALT | MOD_NOREPEAT) as u32, 0x51);
             // 全局热键 Alt + D (VK_D = 0x44) -> 快速透视唤出/显隐切换
             let _ = RegisterHotKey(std::ptr::null_mut(), 102, (MOD_ALT | MOD_NOREPEAT) as u32, 0x44);
+            // 全局热键 Alt + W (VK_W = 0x57) -> 截屏透视与标注
+            let _ = RegisterHotKey(std::ptr::null_mut(), 103, (MOD_ALT | MOD_NOREPEAT) as u32, 0x57);
 
             let mut msg: MSG = std::mem::zeroed();
             while GetMessageW(&mut msg, std::ptr::null_mut(), 0, 0) != 0 {
@@ -100,6 +103,7 @@ pub fn spawn_global_hotkeys(
                     match msg.wParam {
                         101 => trigger_fn(&app_handle),
                         102 => toggle_fn(&app_handle),
+                        103 => snipping_fn(&app_handle),
                         _ => {}
                     }
                 }

@@ -57,6 +57,7 @@ pub struct ChatMessage {
     pub content: MessageContent,
 }
 
+#[allow(dead_code)]
 impl ChatMessage {
     pub fn user_text(text: impl Into<String>) -> Self {
         Self {

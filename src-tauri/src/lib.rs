@@ -142,6 +142,56 @@ pub fn trigger_capture_and_show(app: &AppHandle) {
     }
 }
 
+pub fn trigger_snipping_and_show(app: &AppHandle) {
+    if let Some(window) = app.get_webview_window("snipping") {
+        match capture::capture_screen() {
+            Ok(cap) => {
+                let _ = window.set_position(PhysicalPosition::new(cap.geometry.x, cap.geometry.y));
+                let _ = window.set_size(PhysicalSize::new(cap.geometry.width, cap.geometry.height));
+                let _ = window.emit("glint-snipping-capture", &cap);
+                let _ = window.show();
+                let _ = window.set_focus();
+            }
+            Err(e) => {
+                eprintln!("[Glint] 截屏错误: {}", e);
+            }
+        }
+    }
+}
+
+#[tauri::command]
+fn open_snipping_tool(app: AppHandle) {
+    trigger_snipping_and_show(&app);
+}
+
+#[tauri::command]
+fn close_snipping_tool(app: AppHandle) {
+    if let Some(window) = app.get_webview_window("snipping") {
+        let _ = window.hide();
+    }
+}
+
+#[tauri::command]
+fn submit_snipping_result(app: AppHandle, image_data_url: String, prompt: Option<String>) {
+    if let Some(snip_win) = app.get_webview_window("snipping") {
+        let _ = snip_win.hide();
+    }
+
+    if let Some(hud_win) = app.get_webview_window("hud") {
+        let (cx, cy) = get_cursor_pos();
+        position_hud_window(&hud_win, cx, cy);
+        let _ = hud_win.show();
+        let _ = hud_win.set_focus();
+        let _ = hud_win.emit(
+            "glint-multimodal-trigger",
+            serde_json::json!({
+                "image_data_url": image_data_url,
+                "prompt": prompt
+            }),
+        );
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -158,17 +208,19 @@ pub fn run() {
                 app.handle().clone(),
                 trigger_capture_and_show,
                 toggle_window_visibility,
+                trigger_snipping_and_show,
             );
 
             // 设置系统托盘 (支持左键快速显隐、右键唤起菜单，明确定制 Tooltip 与原生图标)
-            let show_i = MenuItem::with_id(app, "show", "唤出 Glint (Alt + Q)", true, None::<&str>)?;
+            let show_i = MenuItem::with_id(app, "show", "划词透视 (Alt + Q)", true, None::<&str>)?;
+            let snip_i = MenuItem::with_id(app, "snip", "截屏透视 (Alt + W)", true, None::<&str>)?;
             let pref_i = MenuItem::with_id(app, "preferences", "偏好设置...", true, None::<&str>)?;
             let quit_i = MenuItem::with_id(app, "quit", "退出 Glint", true, None::<&str>)?;
-            let menu = Menu::with_items(app, &[&show_i, &pref_i, &quit_i])?;
+            let menu = Menu::with_items(app, &[&show_i, &snip_i, &pref_i, &quit_i])?;
 
             let mut tray_builder = TrayIconBuilder::new()
                 .menu(&menu)
-                .tooltip("Glint - 伴生透视 (Alt + Q)")
+                .tooltip("Glint - 伴生透视 (Alt + Q / Alt + W)")
                 .show_menu_on_left_click(false)
                 .on_tray_icon_event(|tray, event| {
                     if let tauri::tray::TrayIconEvent::Click { button: tauri::tray::MouseButton::Left, .. } = event {
@@ -179,6 +231,9 @@ pub fn run() {
                 .on_menu_event(|app, event| match event.id.as_ref() {
                     "show" => {
                         trigger_capture_and_show(app);
+                    }
+                    "snip" => {
+                        trigger_snipping_and_show(app);
                     }
                     "preferences" => {
                         let _ = open_preferences_window(app.clone());
@@ -198,7 +253,7 @@ pub fn run() {
             Ok(())
         })
         .on_window_event(|window, event| {
-            if window.label() == "preferences" {
+            if window.label() == "preferences" || window.label() == "snipping" {
                 if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                     api.prevent_close();
                     let _ = window.hide();
@@ -219,8 +274,51 @@ pub fn run() {
             get_app_config,
             update_app_config,
             fetch_models,
-            test_llm_connection
+            test_llm_connection,
+            open_snipping_tool,
+            close_snipping_tool,
+            submit_snipping_result
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_snipping_trigger_payload_structure() {
+        let payload = serde_json::json!({
+            "image_data_url": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==",
+            "prompt": "请分析此屏幕截图区域"
+        });
+
+        assert!(payload["image_data_url"].as_str().unwrap().starts_with("data:image/png;base64,"));
+        assert_eq!(payload["prompt"].as_str().unwrap(), "请分析此屏幕截图区域");
+    }
+
+    #[test]
+    fn test_multimodal_multi_turn_payload_generation() {
+        let req = llm::QueryRequest {
+            messages: vec![
+                llm::ChatMessage::user_multimodal("请分析此截屏重点", "data:image/png;base64,AAAA"),
+                llm::ChatMessage::assistant("这是包含系统架构图的截屏，标注重点在于高速缓存和内存拓扑。"),
+                llm::ChatMessage::user_text("其中 Cache 一致性如何避免性能倒退？"),
+            ],
+            api_key: Some("sk-test".to_string()),
+            base_url: Some("https://api.openai.com/v1".to_string()),
+            model: Some("gpt-4o".to_string()),
+        };
+
+        let json_payload = llm::build_api_payload(&req);
+        let msgs = json_payload["messages"].as_array().unwrap();
+        // system prompt + 3 turns = 4 messages
+        assert_eq!(msgs.len(), 4);
+        assert_eq!(msgs[1]["role"], "user");
+        assert_eq!(msgs[2]["role"], "assistant");
+        assert_eq!(msgs[3]["role"], "user");
+        assert_eq!(msgs[3]["content"], "其中 Cache 一致性如何避免性能倒退？");
+    }
+}
+

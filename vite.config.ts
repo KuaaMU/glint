@@ -30,6 +30,7 @@ export default defineConfig(() => ({
       input: {
         main: resolve(__dirname, "index.html"),
         preferences: resolve(__dirname, "preferences.html"),
+        snipping: resolve(__dirname, "snipping.html"),
       },
     },
   },

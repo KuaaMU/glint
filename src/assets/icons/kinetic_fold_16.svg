@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" width="16" height="16">
+  <defs>
+    <linearGradient id="kf16-coral" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FF5370"/>
+      <stop offset="100%" stop-color="#F43F5E"/>
+    </linearGradient>
+    <linearGradient id="kf16-indigo" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#6366F1"/>
+      <stop offset="100%" stop-color="#06B6D4"/>
+    </linearGradient>
+  </defs>
+  <polygon points="7,8 14.5,4.5 12,12 5,14" fill="url(#kf16-indigo)"/>
+  <polygon points="1.5,5 9,2.5 7,8 2.5,10.5" fill="url(#kf16-coral)"/>
+  <line x1="9" y1="2.5" x2="7" y2="8" stroke="#FFFFFF" stroke-width="1.2"/>
+</svg>

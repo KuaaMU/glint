@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Glint - 偏好设置</title>
+    <link rel="stylesheet" href="/src/preferences.css" />
+  </head>
+  <body>
+    <div class="pref-container">
+      <div class="pref-header">
+        <div class="pref-title">
+          <span class="pref-title-icon">⚙</span>
+          <span>Glint 偏好设置</span>
+        </div>
+        <button id="btn-close-pref" class="btn-pref-close" type="button" title="关闭设置 (Esc)">✕</button>
+      </div>
+
+      <!-- 大模型服务配置 -->
+      <div class="section-box">
+        <div class="box-title">
+          <span>⚡</span>
+          <span>大模型服务提供商 (LLM API)</span>
+        </div>
+
+        <div class="preset-chips">
+          <button class="preset-chip active" type="button" data-preset="deepseek">DeepSeek (推荐)</button>
+          <button class="preset-chip" type="button" data-preset="openai">OpenAI</button>
+          <button class="preset-chip" type="button" data-preset="kimi">Moonshot Kimi</button>
+          <button class="preset-chip" type="button" data-preset="ollama">Ollama (本地)</button>
+          <button class="preset-chip" type="button" data-preset="custom">自定义</button>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">API Base URL (端点)</label>
+          <input id="pref-base-url" class="pref-input" placeholder="https://api.deepseek.com/v1" />
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">API Key (密钥)</label>
+          <div class="input-wrapper">
+            <input id="pref-api-key" type="password" class="pref-input" placeholder="sk-..." />
+            <button id="btn-toggle-key-reveal" class="btn-reveal" type="button">显示</button>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <div style="display:flex; justify-content:space-between; align-items:center;">
+            <label class="form-label">Model Name (模型标识)</label>
+            <button id="btn-fetch-models" class="btn-micro-fetch" type="button" title="从 API 端点实时探测并拉取所有可用模型">
+              <span id="fetch-spinner" style="display:none;">⏳</span>
+              <span id="fetch-btn-label">🔄 自动拉取模型</span>
+            </button>
+          </div>
+          <div class="input-wrapper" style="flex-direction:column; align-items:stretch;">
+            <input id="pref-model" class="pref-input" placeholder="deepseek-chat" list="model-datalist" />
+            <select id="pref-model-select" class="pref-select-models" style="display:none;" title="选择拉取的模型">
+              <option value="">-- 选择拉取的模型 --</option>
+            </select>
+          </div>
+          <datalist id="model-datalist"></datalist>
+          <div id="fetch-status-text" class="fetch-status-line"></div>
+        </div>
+
+        <div class="test-row">
+          <button id="btn-test-connection" class="btn-test" type="button">⚡ 测试服务连接</button>
+          <span id="test-result-indicator" class="test-status">未检测</span>
+        </div>
+      </div>
+
+      <!-- 全局热键与系统行为 -->
+      <div class="section-box">
+        <div class="box-title">
+          <span>🛡</span>
+          <span>全局交互与安全保障</span>
+        </div>
+
+        <div class="switch-row">
+          <div>
+            <div class="switch-label">划词透视全局热键</div>
+            <div style="font-size:11px; color:var(--text-muted); margin-top:2px;">选中文本后一键触发伴生透视并解析</div>
+          </div>
+          <kbd style="background:rgba(255,255,255,0.06); border:1px solid var(--input-border); padding:4px 9px; border-radius:6px; font-weight:700; font-size:12px;">Alt + Q</kbd>
+        </div>
+
+        <div class="switch-row">
+          <div>
+            <div class="switch-label">伴生卡片显隐热键</div>
+            <div style="font-size:11px; color:var(--text-muted); margin-top:2px;">在光标旁快速呼出或收起卡片</div>
+          </div>
+          <kbd style="background:rgba(255,255,255,0.06); border:1px solid var(--input-border); padding:4px 9px; border-radius:6px; font-weight:700; font-size:12px;">Alt + D</kbd>
+        </div>
+
+        <div class="switch-row">
+          <div>
+            <div class="switch-label">采词引擎：零冲突序列号与快照恢复</div>
+            <div style="font-size:11px; color:var(--text-muted); margin-top:2px;">高频时序哨兵探测，未选中文本时绝不污染剪贴板</div>
+          </div>
+          <span style="color:#10B981; font-weight:700; font-size:12px;">✓ 活跃运行中</span>
+        </div>
+      </div>
+
+      <!-- 外观与卡片重置 -->
+      <div class="section-box">
+        <div class="box-title">
+          <span>💎</span>
+          <span>外观风格与图标系统</span>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">核心品牌图标</label>
+          <div style="display:flex; align-items:center; gap:12px; background:rgba(255,255,255,0.03); border:1px solid var(--card-border); padding:10px 14px; border-radius:10px;">
+            <img src="/app_icon_master.png" alt="Glint Icon" style="width:28px; height:28px; border-radius:6px; object-fit:contain;" />
+            <div>
+              <div style="font-size:13px; font-weight:600; color:var(--text-main);">Glint 空间折光透镜 (专属定版)</div>
+              <div style="font-size:11px; color:var(--text-muted);">双折页重叠透镜 · 负空间通光孔 · 菲涅尔纤细线稿</div>
+            </div>
+            <span style="margin-left:auto; font-size:11px; color:#10B981; font-weight:700; background:rgba(16,185,129,0.12); padding:3px 8px; border-radius:12px;">已锁定启用</span>
+          </div>
+        </div>
+
+        <div class="switch-row">
+          <div class="switch-label">伴生卡片置顶显示 (Always on Top)</div>
+          <input id="pref-always-on-top" type="checkbox" checked style="width:17px; height:17px; cursor:pointer;" />
+        </div>
+
+        <div class="switch-row">
+          <div>
+            <div class="switch-label">重置卡片视窗尺寸</div>
+            <div style="font-size:11px; color:var(--text-muted); margin-top:2px;">还原 HUD 伴生窗口为初始 440 × 380 像素</div>
+          </div>
+          <button id="btn-reset-window-size" class="btn-test" type="button">重置尺寸</button>
+        </div>
+      </div>
+
+      <button id="btn-save-pref-all" class="btn-save-all" type="button">保存并应用配置</button>
+    </div>
+
+    <div id="save-toast" class="save-toast">配置已保存并同步至伴生卡片</div>
+
+    <script type="module" src="/src/preferences.ts"></script>
+  </body>
+</html>

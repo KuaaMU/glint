@@ -1,0 +1,286 @@
+:root {
+  --card-bg: #FFFFFF;
+  --card-border: rgba(0, 0, 0, 0.1);
+  --text-main: #1E293B;
+  --text-muted: #64748B;
+  --input-bg: #F1F5F9;
+  --btn-arrow-bg: #E2E8F0;
+  --btn-arrow-color: #475569;
+  --anchor-dot: #38BDF8;
+  --font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --card-bg: #141722;
+    --card-border: rgba(255, 255, 255, 0.12);
+    --text-main: #F1F5F9;
+    --text-muted: #94A3B8;
+    --input-bg: rgba(255, 255, 255, 0.06);
+    --btn-arrow-bg: rgba(255, 255, 255, 0.1);
+    --btn-arrow-color: #CBD5E1;
+    --anchor-dot: #38BDF8;
+  }
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+  -webkit-font-smoothing: antialiased;
+}
+
+html, body {
+  background: transparent !important;
+  font-family: var(--font-family);
+  height: 100%;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  user-select: text;
+}
+
+/* 核心浮动卡片：贴合视窗边缘，消除阴影死区与 DWM 重绘卡顿 */
+.glint-card {
+  position: relative;
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-radius: 12px;
+  margin: 0;
+  width: 100vw;
+  height: 100vh;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  transform: translateZ(0); /* 硬件加速合成 */
+  will-change: transform;
+  box-shadow: none; /* 移除外层阴影，彻底消除 Windows DWM 逐帧透明重绘损耗 */
+}
+
+/* 锚点与视窗拖拽把手 */
+.card-anchor-handle {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 14px 6px 14px;
+  cursor: grab;
+  user-select: none;
+  -webkit-app-region: drag;
+  border-bottom: 1px solid transparent;
+}
+
+.card-anchor-handle:active {
+  cursor: grabbing;
+}
+
+.handle-left {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  -webkit-app-region: drag;
+}
+
+.handle-right, .handle-right * {
+  -webkit-app-region: no-drag;
+}
+
+.anchor-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background-color: var(--anchor-dot);
+  box-shadow: 0 0 8px rgba(56, 189, 248, 0.6);
+  display: inline-block;
+}
+
+.card-title-hint {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-muted);
+  letter-spacing: 0.5px;
+  opacity: 0.75;
+}
+
+.handle-right {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  opacity: 0.45;
+  transition: opacity 0.15s;
+}
+
+.glint-card:hover .handle-right {
+  opacity: 1;
+}
+
+.icon-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  transition: background 0.12s, color 0.12s;
+}
+
+.icon-btn:hover {
+  background: rgba(0, 0, 0, 0.08);
+  color: var(--text-main);
+}
+
+@media (prefers-color-scheme: dark) {
+  .icon-btn:hover {
+    background: rgba(255, 255, 255, 0.12);
+  }
+}
+
+/* 正文内容区域 */
+.content-area {
+  flex: 1;
+  padding: 8px 16px 10px 16px;
+  overflow-y: auto;
+  font-size: 13.5px;
+  line-height: 1.7;
+  color: var(--text-main);
+}
+
+.content-area::-webkit-scrollbar {
+  width: 5px;
+}
+
+.content-area::-webkit-scrollbar-thumb {
+  background: rgba(128, 128, 128, 0.25);
+  border-radius: 4px;
+}
+
+/* 正在解释加载态 */
+.status-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-bottom: 8px;
+}
+
+.spinner {
+  width: 12px;
+  height: 12px;
+  border: 2px solid var(--text-muted);
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.explanation-text {
+  word-break: break-word;
+}
+
+.explanation-text p {
+  margin-bottom: 8px;
+}
+
+.explanation-text kbd {
+  background: var(--input-bg);
+  border: 1px solid var(--card-border);
+  padding: 2px 5px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-family: inherit;
+  font-weight: 600;
+}
+
+.reply-turn {
+  margin-top: 4px;
+}
+
+/* 底部追问栏 */
+.card-footer {
+  padding: 8px 14px 10px 14px;
+  border-top: 1px solid var(--card-border);
+  background: transparent;
+}
+
+.followup-box {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--input-bg);
+  border-radius: 18px;
+  padding: 4px 6px 4px 12px;
+  border: 1px solid transparent;
+  transition: border-color 0.15s ease;
+}
+
+.followup-box:focus-within {
+  border-color: #38BDF8;
+}
+
+.followup-input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  outline: none;
+  font-size: 12.5px;
+  color: var(--text-main);
+  font-family: inherit;
+}
+
+.followup-input::placeholder {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.btn-circle-arrow {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: var(--btn-arrow-bg);
+  color: var(--btn-arrow-color);
+  border: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s ease;
+}
+
+.btn-circle-arrow:hover {
+  background: #38BDF8;
+  color: #FFFFFF;
+}
+
+/* 右下角自由缩放把手 */
+.resize-grip {
+  position: absolute;
+  right: 2px;
+  bottom: 2px;
+  width: 22px;
+  height: 22px;
+  cursor: nwse-resize;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  opacity: 0.45;
+  transition: opacity 0.15s, color 0.15s;
+  user-select: none;
+  z-index: 50;
+  -webkit-app-region: no-drag;
+}
+
+.resize-grip:hover {
+  opacity: 1;
+  color: #38BDF8;
+}

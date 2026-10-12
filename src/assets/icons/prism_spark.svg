@@ -1,0 +1,61 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <defs>
+    <linearGradient id="ps-facet-top" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#38BDF8"/>
+      <stop offset="50%" stop-color="#6366F1"/>
+      <stop offset="100%" stop-color="#818CF8"/>
+    </linearGradient>
+    <linearGradient id="ps-facet-right" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#818CF8"/>
+      <stop offset="60%" stop-color="#C084FC"/>
+      <stop offset="100%" stop-color="#EC4899"/>
+    </linearGradient>
+    <linearGradient id="ps-facet-bottom" x1="100%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#EC4899"/>
+      <stop offset="50%" stop-color="#F43F5E"/>
+      <stop offset="100%" stop-color="#FB923C"/>
+    </linearGradient>
+    <linearGradient id="ps-facet-left" x1="100%" y1="100%" x2="0%" y2="0%">
+      <stop offset="0%" stop-color="#0284C7"/>
+      <stop offset="60%" stop-color="#0EA5E9"/>
+      <stop offset="100%" stop-color="#38BDF8"/>
+    </linearGradient>
+    <radialGradient id="ps-core-glow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="1"/>
+      <stop offset="35%" stop-color="#E0F2FE" stop-opacity="0.95"/>
+      <stop offset="70%" stop-color="#38BDF8" stop-opacity="0.4"/>
+      <stop offset="100%" stop-color="#38BDF8" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="ps-ambient-aura" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#6366F1" stop-opacity="0.35"/>
+      <stop offset="50%" stop-color="#38BDF8" stop-opacity="0.15"/>
+      <stop offset="100%" stop-color="#0F172A" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="ps-drop-shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="8" stdDeviation="16" flood-color="#6366F1" flood-opacity="0.45"/>
+    </filter>
+  </defs>
+
+  <circle cx="128" cy="128" r="110" fill="url(#ps-ambient-aura)"/>
+
+  <g filter="url(#ps-drop-shadow)">
+    <polygon points="128,24 168,128 128,128" fill="url(#ps-facet-top)"/>
+    <polygon points="128,128 232,128 168,128" fill="#A855F7" opacity="0.9"/>
+    <polygon points="128,128 232,128 128,168" fill="url(#ps-facet-right)"/>
+    <polygon points="128,168 128,232 88,128" fill="url(#ps-facet-bottom)"/>
+    <polygon points="24,128 128,128 88,128" fill="#0284C7" opacity="0.9"/>
+    <polygon points="24,128 128,88 128,128" fill="url(#ps-facet-left)"/>
+    <polygon points="128,24 128,128 88,128" fill="#0EA5E9" opacity="0.85"/>
+    <polygon points="128,128 128,232 168,128" fill="#E11D48" opacity="0.85"/>
+  </g>
+
+  <g opacity="0.75">
+    <polygon points="128,74 144,128 128,128" fill="#E0F2FE"/>
+    <polygon points="182,128 128,144 128,128" fill="#FCE7F3"/>
+    <polygon points="128,182 112,128 128,128" fill="#FED7AA"/>
+    <polygon points="74,128 128,112 128,128" fill="#BAE6FD"/>
+  </g>
+
+  <circle cx="128" cy="128" r="32" fill="url(#ps-core-glow)"/>
+  <polygon points="128,104 135,121 152,128 135,135 128,152 121,135 104,128 121,121" fill="#FFFFFF"/>
+</svg>

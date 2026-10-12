@@ -12,10 +12,81 @@ pub enum StreamChunk {
     Error(String),
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[serde(untagged)]
+pub enum MessageContent {
+    Text(String),
+    Parts(Vec<ContentPart>),
+}
+
+impl MessageContent {
+    pub fn as_text_lossy(&self) -> String {
+        match self {
+            MessageContent::Text(s) => s.clone(),
+            MessageContent::Parts(parts) => {
+                let texts: Vec<&str> = parts
+                    .iter()
+                    .filter_map(|p| match p {
+                        ContentPart::Text { text } => Some(text.as_str()),
+                        _ => None,
+                    })
+                    .collect();
+                texts.join(" ")
+            }
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[serde(tag = "type")]
+pub enum ContentPart {
+    #[serde(rename = "text")]
+    Text { text: String },
+    #[serde(rename = "image_url")]
+    ImageUrl { image_url: ImageUrlPayload },
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct ImageUrlPayload {
+    pub url: String,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct ChatMessage {
     pub role: String,
-    pub content: String,
+    pub content: MessageContent,
+}
+
+impl ChatMessage {
+    pub fn user_text(text: impl Into<String>) -> Self {
+        Self {
+            role: "user".to_string(),
+            content: MessageContent::Text(text.into()),
+        }
+    }
+
+    pub fn user_multimodal(text: impl Into<String>, image_url: impl Into<String>) -> Self {
+        Self {
+            role: "user".to_string(),
+            content: MessageContent::Parts(vec![
+                ContentPart::Text {
+                    text: text.into(),
+                },
+                ContentPart::ImageUrl {
+                    image_url: ImageUrlPayload {
+                        url: image_url.into(),
+                    },
+                },
+            ]),
+        }
+    }
+
+    pub fn assistant(text: impl Into<String>) -> Self {
+        Self {
+            role: "assistant".to_string(),
+            content: MessageContent::Text(text.into()),
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -33,14 +104,40 @@ const SYSTEM_PROMPT: &str = r#"你是一个专注于消除认知鸿沟的技术�
 3. 如果用户进行多轮继续追问：紧扣上下文与用户的具体疑问，做递进式、具象化拆解，给出针对性解答；
 4. 语言风格：直白、利落、专业、富于洞察，严禁用更晦涩的学术黑话套娃，严禁任何客套寒暄（如“你好”、“很高兴为您解答”）。直接输出正文。"#;
 
+pub fn build_api_payload(req: &QueryRequest) -> serde_json::Value {
+    let mut api_messages = vec![serde_json::json!({
+        "role": "system",
+        "content": SYSTEM_PROMPT
+    })];
+
+    for msg in &req.messages {
+        let content_val = match &msg.content {
+            MessageContent::Text(t) => serde_json::Value::String(t.clone()),
+            MessageContent::Parts(parts) => {
+                serde_json::to_value(parts).unwrap_or(serde_json::Value::Array(vec![]))
+            }
+        };
+
+        api_messages.push(serde_json::json!({
+            "role": msg.role,
+            "content": content_val
+        }));
+    }
+
+    serde_json::json!({
+        "model": req.model.as_deref().unwrap_or("deepseek-chat"),
+        "messages": api_messages,
+        "stream": true,
+        "temperature": 0.3
+    })
+}
+
 pub async fn stream_explanation(req: QueryRequest, channel: Channel<StreamChunk>) {
-    let api_key = req.api_key.unwrap_or_default().trim().to_string();
+    let api_key = req.api_key.as_deref().unwrap_or_default().trim().to_string();
     let base_url = req
         .base_url
-        .unwrap_or_else(|| "https://api.deepseek.com/v1".to_string());
-    let model = req
-        .model
-        .unwrap_or_else(|| "deepseek-chat".to_string());
+        .as_deref()
+        .unwrap_or("https://api.deepseek.com/v1");
 
     // 如果未配置 API Key，启动内置动态智能解析，保证离线追问也有深度回复
     if api_key.is_empty() {
@@ -56,30 +153,13 @@ pub async fn stream_explanation(req: QueryRequest, channel: Channel<StreamChunk>
         }
     };
 
-    let mut api_messages = vec![serde_json::json!({
-        "role": "system",
-        "content": SYSTEM_PROMPT
-    })];
-
-    for msg in &req.messages {
-        api_messages.push(serde_json::json!({
-            "role": msg.role,
-            "content": msg.content
-        }));
-    }
-
     let endpoint = if base_url.ends_with("/chat/completions") {
-        base_url
+        base_url.to_string()
     } else {
         format!("{}/chat/completions", base_url.trim_end_matches('/'))
     };
 
-    let body = serde_json::json!({
-        "model": model,
-        "messages": api_messages,
-        "stream": true,
-        "temperature": 0.3
-    });
+    let body = build_api_payload(&req);
 
     let res = match client
         .post(&endpoint)
@@ -139,12 +219,13 @@ pub async fn stream_explanation(req: QueryRequest, channel: Channel<StreamChunk>
 }
 
 async fn fallback_dynamic_explain(messages: &[ChatMessage], channel: &Channel<StreamChunk>) {
-    let last_user_msg = messages
+    let last_user_text = messages
         .iter()
         .rev()
         .find(|m| m.role == "user")
-        .map(|m| m.content.as_str())
-        .unwrap_or("");
+        .map(|m| m.content.as_text_lossy())
+        .unwrap_or_default();
+    let last_user_msg = last_user_text.as_str();
 
     let reply = if messages.len() > 1 {
         // 多轮追问场景
@@ -187,3 +268,87 @@ async fn fallback_dynamic_explain(messages: &[ChatMessage], channel: &Channel<St
     }
     let _ = channel.send(StreamChunk::Done);
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_plain_text_message_deserialization() {
+        let json_str = r#"{"role": "user", "content": "测试纯文本选词"}"#;
+        let msg: ChatMessage = serde_json::from_str(json_str).expect("应当正确反序列化纯文本消息");
+        assert_eq!(msg.role, "user");
+        assert_eq!(msg.content.as_text_lossy(), "测试纯文本选词");
+    }
+
+    #[test]
+    fn test_assistant_message() {
+        let msg = ChatMessage::assistant("回复测试");
+        assert_eq!(msg.role, "assistant");
+        assert_eq!(msg.content.as_text_lossy(), "回复测试");
+    }
+
+    #[test]
+    fn test_multimodal_message_deserialization() {
+        let json_str = r#"{
+            "role": "user",
+            "content": [
+                {"type": "text", "text": "请分析架构图重点"},
+                {"type": "image_url", "image_url": {"url": "data:image/png;base64,AAAA"}}
+            ]
+        }"#;
+        let msg: ChatMessage = serde_json::from_str(json_str).expect("应当正确反序列化多模态消息");
+        assert_eq!(msg.role, "user");
+        match &msg.content {
+            MessageContent::Parts(parts) => {
+                assert_eq!(parts.len(), 2);
+                match &parts[0] {
+                    ContentPart::Text { text } => assert_eq!(text, "请分析架构图重点"),
+                    _ => panic!("第 0 项应为 Text"),
+                }
+                match &parts[1] {
+                    ContentPart::ImageUrl { image_url } => assert_eq!(image_url.url, "data:image/png;base64,AAAA"),
+                    _ => panic!("第 1 项应为 ImageUrl"),
+                }
+            }
+            _ => panic!("应为 MessageContent::Parts"),
+        }
+    }
+
+    #[test]
+    fn test_build_api_payload_with_mixed_messages() {
+        let req = QueryRequest {
+            messages: vec![
+                ChatMessage::user_text("第一轮文字提问"),
+                ChatMessage::user_multimodal("第二轮看图提问", "data:image/png;base64,BBBB"),
+            ],
+            api_key: Some("sk-test".to_string()),
+            base_url: Some("https://api.openai.com/v1".to_string()),
+            model: Some("gpt-4o".to_string()),
+        };
+
+        let payload = build_api_payload(&req);
+        assert_eq!(payload["model"], "gpt-4o");
+        assert_eq!(payload["stream"], true);
+        assert_eq!(payload["temperature"], 0.3);
+
+        let messages = payload["messages"].as_array().expect("messages 应为数组");
+        // index 0: 系统提示词
+        assert_eq!(messages[0]["role"], "system");
+        assert!(messages[0]["content"].as_str().unwrap().contains("认知鸿沟"));
+
+        // index 1: 纯文本
+        assert_eq!(messages[1]["role"], "user");
+        assert_eq!(messages[1]["content"], "第一轮文字提问");
+
+        // index 2: 多模态
+        assert_eq!(messages[2]["role"], "user");
+        let parts = messages[2]["content"].as_array().expect("多模态 content 应为数组");
+        assert_eq!(parts.len(), 2);
+        assert_eq!(parts[0]["type"], "text");
+        assert_eq!(parts[0]["text"], "第二轮看图提问");
+        assert_eq!(parts[1]["type"], "image_url");
+        assert_eq!(parts[1]["image_url"]["url"], "data:image/png;base64,BBBB");
+    }
+}
+

@@ -127,18 +127,26 @@ pub fn toggle_window_visibility(app: &AppHandle) {
 
 pub fn trigger_capture_and_show(app: &AppHandle) {
     if let Some(window) = app.get_webview_window("hud") {
-        let (text, cursor_x, cursor_y) = match capture_selected_text() {
-            Some(res) => (res.text, res.cursor_x, res.cursor_y),
+        let (text, cursor_x, cursor_y, window_title) = match capture_selected_text() {
+            Some(res) => (res.text, res.cursor_x, res.cursor_y, res.window_title),
             None => {
                 let (cx, cy) = get_cursor_pos();
-                ("".to_string(), cx, cy)
+                let raw_title = crate::platform::get_active_window_title();
+                let win_t = if raw_title.is_empty() { None } else { Some(raw_title) };
+                ("".to_string(), cx, cy, win_t)
             }
         };
 
         position_hud_window(&window, cursor_x, cursor_y);
         let _ = window.show();
         let _ = window.set_focus();
-        let _ = app.emit("glint-trigger", text);
+        let _ = app.emit(
+            "glint-trigger",
+            serde_json::json!({
+                "text": text,
+                "window_title": window_title
+            }),
+        );
     }
 }
 
@@ -172,7 +180,12 @@ fn close_snipping_tool(app: AppHandle) {
 }
 
 #[tauri::command]
-fn submit_snipping_result(app: AppHandle, image_data_url: String, prompt: Option<String>) {
+fn submit_snipping_result(
+    app: AppHandle,
+    image_data_url: String,
+    prompt: Option<String>,
+    window_title: Option<String>,
+) {
     if let Some(snip_win) = app.get_webview_window("snipping") {
         let _ = snip_win.hide();
     }
@@ -186,7 +199,8 @@ fn submit_snipping_result(app: AppHandle, image_data_url: String, prompt: Option
             "glint-multimodal-trigger",
             serde_json::json!({
                 "image_data_url": image_data_url,
-                "prompt": prompt
+                "prompt": prompt,
+                "window_title": window_title
             }),
         );
     }
@@ -309,6 +323,7 @@ mod tests {
             api_key: Some("sk-test".to_string()),
             base_url: Some("https://api.openai.com/v1".to_string()),
             model: Some("gpt-4o".to_string()),
+            window_title: Some("System Architecture - PDF Reader".to_string()),
         };
 
         let json_payload = llm::build_api_payload(&req);

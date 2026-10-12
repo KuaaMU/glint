@@ -20,6 +20,24 @@ pub fn get_cursor_position() -> (i32, i32) {
 }
 
 #[cfg(target_os = "windows")]
+pub fn get_active_window_title() -> String {
+    use windows_sys::Win32::UI::WindowsAndMessaging::{GetForegroundWindow, GetWindowTextW};
+    unsafe {
+        let hwnd = GetForegroundWindow();
+        if hwnd == 0 as _ {
+            return String::new();
+        }
+        let mut buf = [0u16; 512];
+        let len = GetWindowTextW(hwnd, buf.as_mut_ptr(), 512);
+        if len > 0 {
+            String::from_utf16_lossy(&buf[..len as usize]).trim().to_string()
+        } else {
+            String::new()
+        }
+    }
+}
+
+#[cfg(target_os = "windows")]
 unsafe extern "system" {
     pub fn GetClipboardSequenceNumber() -> u32;
 }

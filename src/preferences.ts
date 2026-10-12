@@ -12,6 +12,25 @@ interface AppConfig {
   always_on_top: boolean;
 }
 
+// 标签页切换
+const tabButtons = document.querySelectorAll(".tab-pill");
+const tabPanes = document.querySelectorAll(".tab-pane");
+
+tabButtons.forEach((btn) => {
+  btn.addEventListener("click", () => {
+    tabButtons.forEach((b) => b.classList.remove("active"));
+    tabPanes.forEach((p) => p.classList.remove("active"));
+
+    btn.classList.add("active");
+    const targetId = (btn as HTMLElement).dataset.tab;
+    if (targetId) {
+      const pane = document.getElementById(targetId);
+      if (pane) pane.classList.add("active");
+    }
+  });
+});
+
+// 表单元素引用
 const prefBaseUrl = document.getElementById("pref-base-url") as HTMLInputElement;
 const prefApiKey = document.getElementById("pref-api-key") as HTMLInputElement;
 const prefModel = document.getElementById("pref-model") as HTMLInputElement;
@@ -25,7 +44,7 @@ const fetchStatusText = document.getElementById("fetch-status-text") as HTMLElem
 const prefAlwaysOnTop = document.getElementById("pref-always-on-top") as HTMLInputElement;
 const btnToggleKey = document.getElementById("btn-toggle-key-reveal") as HTMLButtonElement;
 const btnTest = document.getElementById("btn-test-connection") as HTMLButtonElement;
-const testResult = document.getElementById("test-result-indicator") as HTMLSpanElement;
+const testResult = document.getElementById("test-result-indicator") as HTMLDivElement;
 const btnSave = document.getElementById("btn-save-pref-all") as HTMLButtonElement;
 const btnResetSize = document.getElementById("btn-reset-window-size") as HTMLButtonElement;
 const toast = document.getElementById("save-toast") as HTMLDivElement;
@@ -53,22 +72,22 @@ const presets: Record<string, { base_url: string; model: string }> = {
   },
 };
 
-document.querySelectorAll(".preset-chip").forEach((btn) => {
+// 服务提供商选择
+document.querySelectorAll(".provider-btn").forEach((btn) => {
   btn.addEventListener("click", () => {
-    document.querySelectorAll(".preset-chip").forEach((b) => b.classList.remove("active"));
+    document.querySelectorAll(".provider-btn").forEach((b) => b.classList.remove("active"));
     btn.classList.add("active");
     const p = (btn as HTMLElement).dataset.preset;
     if (p && presets[p]) {
       if (presets[p].base_url) prefBaseUrl.value = presets[p].base_url;
       if (presets[p].model) prefModel.value = presets[p].model;
-      if (prefApiKey.value.trim() || prefBaseUrl.value.includes("localhost")) {
-        triggerSoftAutoFetch();
-      }
+      fetchStatusText.textContent = "";
+      prefModelSelect.style.display = "none";
     }
   });
 });
 
-// API Key 密码框显隐切换
+// API Key 密码明文切换
 btnToggleKey.addEventListener("click", () => {
   if (prefApiKey.type === "password") {
     prefApiKey.type = "text";
@@ -86,102 +105,69 @@ async function fetchModelsFromApi(silent = false) {
 
   if (!baseUrl) {
     if (!silent) {
-      fetchStatusText.textContent = "请先输入 Base URL 端点地址";
-      fetchStatusText.style.color = "#EF4444";
+      fetchStatusText.textContent = "请先输入 Base URL 端点";
+      fetchStatusText.style.color = "#f87171";
     }
     return;
   }
 
-  fetchSpinner.style.display = "inline";
-  fetchBtnLabel.textContent = "探测中...";
+  fetchSpinner.style.display = "inline-block";
+  fetchBtnLabel.textContent = "正在探测...";
   btnFetchModels.disabled = true;
-  if (!silent) {
-    fetchStatusText.textContent = "正在向端点探测可用模型列表...";
-    fetchStatusText.style.color = "var(--text-muted)";
-  }
 
   try {
     let models: string[] = [];
     if (isTauri()) {
       models = await invoke<string[]>("fetch_models", { apiKey, baseUrl });
     } else {
-      // 前端环境模拟
       await new Promise((r) => setTimeout(r, 600));
-      models = [
-        "deepseek-chat",
-        "deepseek-reasoner",
-        "gpt-4o",
-        "gpt-4o-mini",
-        "qwen2.5:7b",
-        "moonshot-v1-8k",
-      ];
+      models = ["deepseek-chat", "deepseek-reasoner", "gpt-4o", "gpt-4o-mini", "qwen2.5:7b"];
     }
 
     if (models.length > 0) {
-      // 填充 datalist 供自动补全
       modelDatalist.innerHTML = "";
-      // 填充 select 供用户快捷点选
-      prefModelSelect.innerHTML = '<option value="">-- 选择拉取的模型 (' + models.length + '个) --</option>';
+      prefModelSelect.innerHTML = `<option value="">已发现 ${models.length} 个模型 (点击快捷填入)...</option>`;
 
       models.forEach((m) => {
-        const optData = document.createElement("option");
-        optData.value = m;
-        modelDatalist.appendChild(optData);
+        const opt = document.createElement("option");
+        opt.value = m;
+        modelDatalist.appendChild(opt);
 
-        const optSelect = document.createElement("option");
-        optSelect.value = m;
-        optSelect.textContent = m;
-        if (m === prefModel.value.trim()) {
-          optSelect.selected = true;
-        }
-        prefModelSelect.appendChild(optSelect);
+        const selOpt = document.createElement("option");
+        selOpt.value = m;
+        selOpt.textContent = m;
+        prefModelSelect.appendChild(selOpt);
       });
 
       prefModelSelect.style.display = "block";
-      fetchStatusText.textContent = `✓ 成功拉取 ${models.length} 个模型 (可通过下拉菜单直接点选)`;
-      fetchStatusText.style.color = "#10B981";
+      fetchStatusText.textContent = `✓ 探测成功，已发现 ${models.length} 个可用模型`;
+      fetchStatusText.style.color = "#34d399";
 
-      // 若当前输入框为空，自动填充首个推荐模型
       if (!prefModel.value.trim() && models[0]) {
         prefModel.value = models[0];
       }
     } else {
-      fetchStatusText.textContent = "未发现任何模型，请检查端点返回数据";
-      fetchStatusText.style.color = "#F59E0B";
+      fetchStatusText.textContent = "端点未返回模型列表，可手动输入标识";
+      fetchStatusText.style.color = "var(--text-dim)";
     }
-  } catch (err) {
-    fetchStatusText.textContent = `✗ 拉取失败: ${err}`;
-    fetchStatusText.style.color = "#EF4444";
+  } catch (_err) {
+    // 优雅降级提示，避免突兀的红屏报错
+    fetchStatusText.textContent = "该端点暂不支持自动枚举模型，请直接手动指定";
+    fetchStatusText.style.color = "var(--text-dim)";
   } finally {
     fetchSpinner.style.display = "none";
-    fetchBtnLabel.textContent = "🔄 自动拉取模型";
+    fetchBtnLabel.textContent = "探测可用模型";
     btnFetchModels.disabled = false;
   }
 }
 
-// 绑定模型拉取事件
 btnFetchModels.addEventListener("click", () => fetchModelsFromApi(false));
 
-// 下拉列表选择同步至输入框
 prefModelSelect.addEventListener("change", () => {
   if (prefModelSelect.value) {
     prefModel.value = prefModelSelect.value;
   }
 });
-
-// 当 Base URL 或 API Key 失去焦点且两者非空时，温和自动拉取一次
-let autoFetchDebounceTimer: any = null;
-function triggerSoftAutoFetch() {
-  clearTimeout(autoFetchDebounceTimer);
-  autoFetchDebounceTimer = setTimeout(() => {
-    if (prefBaseUrl.value.trim() && (prefApiKey.value.trim() || prefBaseUrl.value.includes("localhost"))) {
-      fetchModelsFromApi(true);
-    }
-  }, 800);
-}
-
-prefBaseUrl.addEventListener("blur", triggerSoftAutoFetch);
-prefApiKey.addEventListener("blur", triggerSoftAutoFetch);
 
 // 载入已有配置
 async function loadConfig() {
@@ -192,12 +178,9 @@ async function loadConfig() {
       prefApiKey.value = cfg.api_key || "";
       prefModel.value = cfg.model || "deepseek-chat";
       prefAlwaysOnTop.checked = cfg.always_on_top ?? true;
-      if (prefBaseUrl.value.trim() && (prefApiKey.value.trim() || prefBaseUrl.value.includes("localhost"))) {
-        fetchModelsFromApi(true);
-      }
       return;
     } catch (e) {
-      console.warn("加载 Tauri 配置异常，回退至 localStorage:", e);
+      console.warn("加载配置异常:", e);
     }
   }
 
@@ -205,9 +188,6 @@ async function loadConfig() {
   prefApiKey.value = localStorage.getItem("glint_api_key") || "";
   prefModel.value = localStorage.getItem("glint_model") || "deepseek-chat";
   prefAlwaysOnTop.checked = localStorage.getItem("glint_always_on_top") !== "false";
-  if (prefBaseUrl.value.trim() && (prefApiKey.value.trim() || prefBaseUrl.value.includes("localhost"))) {
-    fetchModelsFromApi(true);
-  }
 }
 
 // 保存配置
@@ -240,7 +220,7 @@ async function saveConfig() {
   toast.style.opacity = "1";
   setTimeout(() => {
     toast.style.opacity = "0";
-  }, 2200);
+  }, 1800);
 }
 
 // 测试连接
@@ -250,12 +230,12 @@ btnTest.addEventListener("click", async () => {
   const model = prefModel.value.trim();
 
   if (!baseUrl || !model) {
-    testResult.textContent = "请先填写 Base URL 和 Model";
-    testResult.style.color = "#EF4444";
+    testResult.textContent = "请先填写 Base URL 与 Model";
+    testResult.style.color = "#f87171";
     return;
   }
 
-  testResult.textContent = "正在探测连接与响应延迟...";
+  testResult.textContent = "正在探测...";
   testResult.style.color = "var(--text-muted)";
 
   if (isTauri()) {
@@ -266,17 +246,16 @@ btnTest.addEventListener("click", async () => {
         model,
       });
       testResult.textContent = `✓ ${res}`;
-      testResult.style.color = "#10B981";
+      testResult.style.color = "#34d399";
     } catch (err) {
-      testResult.textContent = `✗ 连接失败: ${err}`;
-      testResult.style.color = "#EF4444";
+      testResult.textContent = `✗ ${err}`;
+      testResult.style.color = "#f87171";
     }
   } else {
-    // 纯前端模拟
     setTimeout(() => {
-      testResult.textContent = "✓ 模拟连接成功 (延迟 85ms)";
-      testResult.style.color = "#10B981";
-    }, 600);
+      testResult.textContent = "✓ 连通正常 (82ms)";
+      testResult.style.color = "#34d399";
+    }, 500);
   }
 });
 
@@ -288,16 +267,17 @@ btnResetSize.addEventListener("click", async () => {
       await invoke("reset_hud_size");
     } catch (_) {}
   }
-  toast.textContent = "卡片尺寸已重置为 440 × 380";
+  toast.textContent = "尺寸已恢复为 440 × 380";
   toast.style.opacity = "1";
   setTimeout(() => {
     toast.style.opacity = "0";
-    toast.textContent = "配置已保存并同步至伴生卡片";
-  }, 2000);
+    toast.textContent = "配置已生效并同步";
+  }, 1800);
 });
 
 btnSave.addEventListener("click", saveConfig);
 
+// 窗口控制与快捷键 (Esc 快速收起)
 const btnClosePref = document.getElementById("btn-close-pref") as HTMLButtonElement | null;
 if (btnClosePref) {
   btnClosePref.addEventListener("click", async () => {

@@ -8,6 +8,7 @@ pub struct SelectionResult {
     pub text: String,
     pub cursor_x: i32,
     pub cursor_y: i32,
+    pub window_title: Option<String>,
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug, PartialEq)]
@@ -22,6 +23,7 @@ pub struct ScreenGeometry {
 pub struct ScreenCaptureResult {
     pub image_data_url: String,
     pub geometry: ScreenGeometry,
+    pub window_title: Option<String>,
 }
 
 pub fn encode_rgba_to_png_data_url(rgba_pixels: &[u8], width: u32, height: u32) -> Result<String, String> {
@@ -152,6 +154,9 @@ pub fn capture_screen() -> Result<ScreenCaptureResult, String> {
 
         let image_data_url = encode_rgba_to_png_data_url(&rgba_buf, width as u32, height as u32)?;
 
+        let raw_title = crate::platform::get_active_window_title();
+        let window_title = if raw_title.is_empty() { None } else { Some(raw_title) };
+
         Ok(ScreenCaptureResult {
             image_data_url,
             geometry: ScreenGeometry {
@@ -160,6 +165,7 @@ pub fn capture_screen() -> Result<ScreenCaptureResult, String> {
                 width: width as u32,
                 height: height as u32,
             },
+            window_title,
         })
     }
 }
@@ -188,6 +194,8 @@ pub fn generate_fallback_capture(width: u32, height: u32, x: i32, y: i32) -> Scr
     }
 
     let image_data_url = encode_rgba_to_png_data_url(&rgba, w, h).unwrap_or_else(|_| "data:image/png;base64,".to_string());
+    let raw_title = crate::platform::get_active_window_title();
+    let window_title = if raw_title.is_empty() { None } else { Some(raw_title) };
     ScreenCaptureResult {
         image_data_url,
         geometry: ScreenGeometry {
@@ -196,6 +204,7 @@ pub fn generate_fallback_capture(width: u32, height: u32, x: i32, y: i32) -> Scr
             width: w,
             height: h,
         },
+        window_title,
     }
 }
 
@@ -280,10 +289,14 @@ pub fn capture_selected_text() -> Option<SelectionResult> {
     }
 
     // 5. 组装返回结果
+    let raw_title = crate::platform::get_active_window_title();
+    let window_title = if raw_title.is_empty() { None } else { Some(raw_title) };
+
     captured_text.map(|text| SelectionResult {
         text,
         cursor_x,
         cursor_y,
+        window_title,
     })
 }
 
@@ -298,10 +311,12 @@ mod tests {
             text: "Hello Glint".to_string(),
             cursor_x: 100,
             cursor_y: 200,
+            window_title: Some("Bilibili - Google Chrome".to_string()),
         };
         let json = serde_json::to_string(&res).unwrap();
         assert!(json.contains("Hello Glint"));
         assert!(json.contains("\"cursor_x\":100"));
+        assert!(json.contains("Bilibili - Google Chrome"));
     }
 
     #[test]

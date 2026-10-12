@@ -23,6 +23,7 @@ interface QueryRequest {
   api_key?: string | null;
   base_url?: string | null;
   model?: string | null;
+  window_title?: string | null;
 }
 
 // DOM 元素引用
@@ -33,16 +34,47 @@ const btnSendFollowup = document.getElementById("btn-send-followup") as HTMLButt
 const btnCloseCard = document.getElementById("btn-close-card") as HTMLButtonElement;
 const btnSettingsToggle = document.getElementById("btn-settings-toggle") as HTMLButtonElement;
 const btnSnipToggle = document.getElementById("btn-snip-toggle") as HTMLButtonElement | null;
+const hostBadge = document.getElementById("host-badge") as HTMLDivElement | null;
+const hostTitle = document.getElementById("host-title") as HTMLSpanElement | null;
 const cardHandle = document.querySelector(".card-anchor-handle") as HTMLElement;
 const resizeGrip = document.getElementById("resize-grip") as HTMLElement;
 
 // 多轮对话上下文记忆与独立会话隔离
 let conversationMessages: ChatMessage[] = [];
 let activeSessionId = 0;
+let currentHostTitle: string | null = null;
 
 // 配置状态获取
 function getStoredSetting(key: string, fallback: string): string {
   return localStorage.getItem(key) || fallback;
+}
+
+// 更新顶部宿主应用感知胶囊
+function updateHostBadge(title: string | null | undefined) {
+  currentHostTitle = title || null;
+  if (!hostBadge || !hostTitle) return;
+
+  if (currentHostTitle && currentHostTitle.trim()) {
+    let display = currentHostTitle.trim();
+    if (display.includes("bilibili") || display.includes("哔哩哔哩")) {
+      display = "哔哩哔哩 · bilibili";
+    } else if (display.includes("Visual Studio Code")) {
+      display = "VS Code";
+    } else if (display.includes("GitHub")) {
+      display = "GitHub";
+    } else if (display.includes("Chrome") || display.includes("Edge")) {
+      // 提取网页主标题
+      const parts = display.split(" - ");
+      display = parts.length > 1 ? parts[0] : display;
+    }
+    if (display.length > 22) {
+      display = display.slice(0, 20) + "...";
+    }
+    hostTitle.textContent = display;
+    hostBadge.style.display = "inline-flex";
+  } else {
+    hostBadge.style.display = "none";
+  }
 }
 
 // 提取用户消息纯文本概览用于 UI 显示
@@ -73,7 +105,7 @@ async function executeExplain(
     const lastUserSummary = getMessageDisplaySummary(messages[messages.length - 1].content);
     const qDiv = document.createElement("div");
     qDiv.style.cssText =
-      "font-weight:600; color:var(--text-muted); margin:12px 0 6px 0; font-size:12.5px; border-top:1px dashed var(--card-border); padding-top:8px;";
+      "font-weight:600; color:var(--text-muted); margin:12px 0 6px 0; font-size:12px; border-top:1px dashed rgba(255,255,255,0.08); padding-top:8px;";
     qDiv.textContent = `追问: ${lastUserSummary}`;
     explanationText.appendChild(qDiv);
 
@@ -109,6 +141,7 @@ async function executeExplain(
     api_key: getStoredSetting("glint_api_key", ""),
     base_url: getStoredSetting("glint_base_url", "https://api.deepseek.com/v1"),
     model: getStoredSetting("glint_model", "deepseek-chat"),
+    window_title: currentHostTitle,
   };
 
   if (isTauri()) {
@@ -144,21 +177,19 @@ async function simulateMockStream(
 
   if (hasImage && messages.length === 1) {
     reply =
-      "【视觉多模态透视】已解析所选屏幕区域：\n1. 核心结构：画面包含关键界面与标注指引，直观展示了系统交互与状态拓扑；\n2. 本质洞察：该设计采用最小心智负担的 Focus-First 渐进显露模式，避免传统工具栏信息过载；\n3. 建议与下步：您可在下方输入框针对画面中具体细节继续深入追问。";
+      "【视觉多模态透视】已定位屏幕焦点：\n1. 场景结构：所选区域包含当前窗口的核心交互意图与标注重点；\n2. 本质洞察：利用 Focus-First 渐进式透镜消除视觉干扰，直接聚合关键结论；\n3. 深入探讨：可在下方直接就该区域的某个细节继续追问。";
   } else if (messages.length > 1) {
     if (lastUserSummary.includes("GPU") || lastUserSummary.includes("显卡")) {
       reply =
         "在 GPU 架构中，这一矛盾更加尖锐：GPU 拥有成千上万个并发运算单元，如果全部向全局显存索取数据，总线会瞬间饱和。因此 GPU 引入了片上 Shared Memory（SRAM）。现代算子优化（如 FlashAttention）正是通过在局部 SRAM 内部完成计算，大幅减少往返显存的次数。";
-    } else if (lastUserSummary.includes("优化") || lastUserSummary.includes("怎么解决")) {
-      reply =
-        "在工程层面的核心思路包括：1. 结构体对齐（Padding/Align）：按 64 字节 Cache Line 对齐避免伪共享；2. 算子融合（Operator Fusion）：消除跨核反复搬移；3. 内存预取（Prefetching）：提前将下一循环的数据滑入缓存。";
     } else {
-      reply = `针对你的追问“${lastUserSummary}”：在真实底层系统中，解决这一问题必须打破高级语言‘内存是平坦大数组’的假设，主动顺应硬件层级拓扑来组织数据。`;
+      reply = `针对追问“${lastUserSummary}”：在真实底层系统与当前应用场景中，核心权衡在于以局部缓存与空间换取更低的延迟与一致性损耗。`;
     }
+  } else if (lastUserSummary.includes("下载客户端")) {
+    reply =
+      "在哔哩哔哩网页版当前场景中，这是引导安装桌面端独立客户端的入口。相比浏览器，客户端支持 4K 超清硬解加速、更低系统功耗、后台常驻并提供离线缓存下载。";
   } else {
-    reply = lastUserSummary.includes("面对的并不是")
-      ? "这里的关键在于「并不是」引出的转折：CPU 和 NPU/GPU 等运算核心面对的物理内存并非理想化的均匀整体。前文提到的虚拟地址空间是软件层面的抽象，给程序一种拥有连续、独占内存的假象；而一旦落到真实硬件，内存实际上是分层且不同质的——从极快但极小的寄存器、各级 Cache，到较慢的主存（DRAM），甚至跨芯片访问时还有更慢的一致性总线。因此，「一块均质平坦、可以瞬时读写的物理内存」是一种需要被打破的误解，这正是理解内存墙和 Cache 一致性的出发点。"
-      : `已锁定核心词条“${lastUserSummary}”。其本质在于通过底层微架构级流水线优化，消解多线程资源竞争与内存延迟停顿。`;
+    reply = `已直击核心词条“${lastUserSummary}”。结合当前应用情境，其关键逻辑在于消除抽象层假象，直面真实的底层机制。`;
   }
 
   for (const char of reply) {
@@ -174,15 +205,21 @@ async function simulateMockStream(
 }
 
 // 开始纯文本透视会话
-function startNewQuery(text: string) {
+function startNewQuery(text: string, windowTitle?: string | null) {
   activeSessionId++;
+  updateHostBadge(windowTitle);
   conversationMessages = [{ role: "user", content: text }];
   executeExplain(conversationMessages, activeSessionId);
 }
 
 // 开始多模态截图透视会话
-function startNewMultimodalQuery(imageDataUrl: string, prompt?: string) {
+function startNewMultimodalQuery(
+  imageDataUrl: string,
+  prompt?: string,
+  windowTitle?: string | null
+) {
   activeSessionId++;
+  updateHostBadge(windowTitle || "屏幕截取");
   const defaultPrompt = prompt || "请分析所选屏幕区域的内容，一针见血透视核心本质与关键信息。";
   conversationMessages = [
     {
@@ -221,7 +258,7 @@ function sendFollowup() {
 // 拖拽窗口
 if (cardHandle) {
   cardHandle.addEventListener("mousedown", async (e) => {
-    if (e.button === 0 && !(e.target as HTMLElement).closest(".icon-btn")) {
+    if (e.button === 0 && !(e.target as HTMLElement).closest(".glass-icon-btn")) {
       if (isTauri()) {
         try {
           await getCurrentWindow().startDragging();
@@ -248,7 +285,7 @@ if (btnSnipToggle) {
   });
 }
 
-// 右下角微缩放把手交互 (贴合窗口边沿，高DPI自适应，无死区)
+// 右下角微缩放把手交互
 if (resizeGrip) {
   resizeGrip.addEventListener("mousedown", async (e) => {
     e.preventDefault();
@@ -391,20 +428,31 @@ if (isTauri()) {
   });
 
   // 监听截屏多模态透视触发事件
-  listen<{ image_data_url: string; prompt?: string }>("glint-multimodal-trigger", (event) => {
-    const payload = event.payload;
-    if (payload && payload.image_data_url) {
-      startNewMultimodalQuery(payload.image_data_url, payload.prompt);
+  listen<{ image_data_url: string; prompt?: string; window_title?: string | null }>(
+    "glint-multimodal-trigger",
+    (event) => {
+      const payload = event.payload;
+      if (payload && payload.image_data_url) {
+        startNewMultimodalQuery(payload.image_data_url, payload.prompt, payload.window_title);
+      }
     }
-  });
+  );
 
   // 注册 Tauri 原生划词触发事件
-  listen<string>("glint-trigger", (event) => {
-    const text = event.payload ? event.payload.trim() : "";
+  listen<any>("glint-trigger", (event) => {
+    let text = "";
+    let winTitle: string | null = null;
+    if (typeof event.payload === "string") {
+      text = event.payload.trim();
+    } else if (event.payload && typeof event.payload === "object") {
+      text = (event.payload.text || "").trim();
+      winTitle = event.payload.window_title || null;
+    }
+
     if (text) {
-      startNewQuery(text);
+      startNewQuery(text, winTitle);
     } else {
-      // 哨兵探测判定无新选中文本：绝不显示旧内容，彻底重置会话
+      updateHostBadge(winTitle);
       activeSessionId++;
       conversationMessages = [];
       explanationText.innerHTML =

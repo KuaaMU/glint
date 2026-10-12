@@ -9,25 +9,48 @@
   </head>
 
   <body>
-    <!-- 伴生卡片容器 -->
+    <!-- 伴生卡片容器 (琉璃质感 · 菲涅尔线稿) -->
     <div id="glint-card" class="glint-card">
+      <!-- 顶部琉璃流光刃 -->
+      <div class="card-streamer-glow"></div>
+
       <!-- 视窗拖拽与微型操作把手 -->
       <div class="card-anchor-handle" data-tauri-drag-region>
         <div class="handle-left">
           <span class="anchor-dot" title="Glint 伴生核心"></span>
           <span class="card-title-hint">Glint</span>
+          <!-- 宿主环境感知胶囊 -->
+          <div id="host-badge" class="host-badge" style="display: none;">
+            <span class="host-dot"></span>
+            <span id="host-title">桌面伴生</span>
+          </div>
         </div>
         <div class="handle-right">
-          <button id="btn-snip-toggle" class="icon-btn" title="截屏透视 (Alt + W)">✂</button>
-          <button id="btn-settings-toggle" class="icon-btn" title="偏好设置 (独立后台窗口)">⚙</button>
-          <button id="btn-close-card" class="icon-btn" title="收起 (Esc)">✕</button>
+          <button id="btn-snip-toggle" class="glass-icon-btn" title="截屏透视 (Alt + W)">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/>
+              <line x1="20" y1="4" x2="8.12" y2="15.88"/><line x1="14.47" y1="14.48" x2="20" y2="20"/><line x1="8.12" y1="8.12" x2="12" y2="12"/>
+            </svg>
+          </button>
+          <button id="btn-settings-toggle" class="glass-icon-btn" title="偏好设置">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/>
+              <circle cx="12" cy="12" r="3"/>
+            </svg>
+          </button>
+          <button id="btn-close-card" class="glass-icon-btn close-btn" title="收起 (Esc)">
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="18" y1="6" x2="6" y2="18"></line>
+              <line x1="6" y1="6" x2="18" y2="18"></line>
+            </svg>
+          </button>
         </div>
       </div>
 
       <!-- 核心解释文本展示区 (流式输出) -->
       <div id="content-area" class="content-area">
         <div id="status-indicator" class="status-indicator" style="display: none;">
-          <span class="spinner"></span>
+          <span class="spinner-dot"></span>
           <span>正在透视本质...</span>
         </div>
         <div id="explanation-text" class="explanation-text">
@@ -42,10 +65,11 @@
             id="followup-input"
             type="text"
             class="followup-input"
-            placeholder="继续追问细节或底层原理..."
+            placeholder="深入追问当前语境细节或底层原理..."
+            spellcheck="false"
           />
-          <button id="btn-send-followup" class="btn-circle-arrow" title="发送追问">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <button id="btn-send-followup" class="btn-circle-arrow" title="发送追问 (Enter)">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
               <line x1="5" y1="12" x2="19" y2="12"></line>
               <polyline points="12 5 19 12 12 19"></polyline>
             </svg>
@@ -55,7 +79,7 @@
 
       <!-- 右下角自由微缩放把手 (消除阴影死区，贴合边沿) -->
       <div id="resize-grip" class="resize-grip" title="按住拖拽调整卡片尺寸">
-        <svg width="10" height="10" viewBox="0 0 10 10">
+        <svg width="9" height="9" viewBox="0 0 10 10">
           <path d="M8 2L2 8M9 5L5 9M9 8L8 9" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
         </svg>
       </div>

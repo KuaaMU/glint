@@ -29,6 +29,21 @@ pub fn get_cursor_position() -> (i32, i32) {
     (300, 200)
 }
 
+#[cfg(target_os = "linux")]
+pub fn get_active_window_title() -> String {
+    if let Ok(out) = Command::new("xdotool").args(["getactivewindow", "getwindowname"]).output() {
+        String::from_utf8_lossy(&out.stdout).trim().to_string()
+    } else {
+        String::new()
+    }
+}
+
+#[cfg(not(target_os = "linux"))]
+#[allow(dead_code)]
+pub fn get_active_window_title() -> String {
+    String::new()
+}
+
 #[cfg(not(target_os = "linux"))]
 #[allow(dead_code)]
 pub fn get_cursor_position() -> (i32, i32) {

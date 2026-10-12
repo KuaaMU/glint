@@ -11,6 +11,7 @@ interface ScreenGeometry {
 interface ScreenCaptureResult {
   image_data_url: string;
   geometry: ScreenGeometry;
+  window_title?: string | null;
 }
 
 interface Rect {
@@ -238,6 +239,8 @@ function updateSelectionBoxUI() {
   }
 }
 
+let currentWindowTitle: string | null = null;
+
 // 初始化截屏数据载入
 function loadCaptureData(capture: ScreenCaptureResult) {
   strokes = [];
@@ -245,6 +248,7 @@ function loadCaptureData(capture: ScreenCaptureResult) {
   isDrawMode = false;
   drawDrawer.style.display = "none";
   btnToggleDraw.classList.remove("active");
+  currentWindowTitle = capture.window_title || null;
 
   const img = new Image();
   img.onload = () => {
@@ -534,6 +538,7 @@ async function submitSelection() {
       await invoke("submit_snipping_result", {
         imageDataUrl: croppedDataUrl,
         prompt: "请分析此屏幕截图区域，直击关键信息与核心本质。",
+        windowTitle: currentWindowTitle,
       });
     } catch (err) {
       console.error("提交截屏结果失败:", err);

@@ -24,6 +24,26 @@ pub fn get_cursor_position() -> (i32, i32) {
     }
 }
 
+/// 获取当前用户操作的前台宿主应用窗口标题 (用于多维上下文环境感知)
+pub fn get_active_window_title() -> String {
+    #[cfg(target_os = "windows")]
+    {
+        windows::get_active_window_title()
+    }
+    #[cfg(target_os = "macos")]
+    {
+        macos::get_active_window_title()
+    }
+    #[cfg(target_os = "linux")]
+    {
+        linux::get_active_window_title()
+    }
+    #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
+    {
+        String::new()
+    }
+}
+
 /// 跨平台获取系统剪贴板更新序列号 (Windows 原生硬件支持，非 Windows 返回 0)
 pub fn get_clipboard_sequence() -> u32 {
     #[cfg(target_os = "windows")]

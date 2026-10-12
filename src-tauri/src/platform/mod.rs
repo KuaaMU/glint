@@ -44,6 +44,17 @@ pub fn get_active_window_title() -> String {
     }
 }
 
+/// 获取前台宿主应用窗口标题 Option 包装 (空字符串返回 None)
+pub fn get_active_window_title_opt() -> Option<String> {
+    let title = get_active_window_title();
+    let trimmed = title.trim();
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed.to_string())
+    }
+}
+
 /// 跨平台获取系统剪贴板更新序列号 (Windows 原生硬件支持，非 Windows 返回 0)
 pub fn get_clipboard_sequence() -> u32 {
     #[cfg(target_os = "windows")]

@@ -2,6 +2,18 @@ import { invoke, Channel, isTauri } from "@tauri-apps/api/core";
 import { getCurrentWindow, LogicalSize } from "@tauri-apps/api/window";
 import { listen } from "@tauri-apps/api/event";
 
+interface AppConfig {
+  base_url?: string;
+  api_key?: string;
+  model?: string;
+  always_on_top?: boolean;
+}
+
+interface GlintTriggerPayload {
+  text?: string;
+  window_title?: string | null;
+}
+
 interface StreamChunk {
   type: "Token" | "Done" | "Error";
   data?: string;
@@ -39,7 +51,7 @@ const hostTitle = document.getElementById("host-title") as HTMLSpanElement | nul
 const cardHandle = document.querySelector(".card-anchor-handle") as HTMLElement;
 const resizeGrip = document.getElementById("resize-grip") as HTMLElement;
 
-// 多轮对话上下文记忆与独立会话隔离
+// 会话状态管理
 let conversationMessages: ChatMessage[] = [];
 let activeSessionId = 0;
 let currentHostTitle: string | null = null;
@@ -49,13 +61,14 @@ function getStoredSetting(key: string, fallback: string): string {
   return localStorage.getItem(key) || fallback;
 }
 
-// 更新顶部宿主应用感知胶囊
-function updateHostBadge(title: string | null | undefined) {
-  currentHostTitle = title || null;
+// 更新顶部宿主应用感知胶囊 (避免将纯 UI 提示回写进 currentHostTitle)
+function updateHostBadge(title: string | null | undefined, fallbackDisplay?: string) {
+  currentHostTitle = title?.trim() || null;
   if (!hostBadge || !hostTitle) return;
 
-  if (currentHostTitle && currentHostTitle.trim()) {
-    let display = currentHostTitle.trim();
+  const raw = currentHostTitle || fallbackDisplay;
+  if (raw && raw.trim()) {
+    let display = raw.trim();
     if (display.includes("bilibili") || display.includes("哔哩哔哩")) {
       display = "哔哩哔哩 · bilibili";
     } else if (display.includes("Visual Studio Code")) {
@@ -63,7 +76,6 @@ function updateHostBadge(title: string | null | undefined) {
     } else if (display.includes("GitHub")) {
       display = "GitHub";
     } else if (display.includes("Chrome") || display.includes("Edge")) {
-      // 提取网页主标题
       const parts = display.split(" - ");
       display = parts.length > 1 ? parts[0] : display;
     }
@@ -84,7 +96,7 @@ function getMessageDisplaySummary(content: MessageContent): string {
   return textPart ? textPart.text : "【屏幕截图与标注】";
 }
 
-// 核心流式查询调用 (严格绑定 sessionId，防止幽灵脏数据串台)
+// 执行流式解释查询并绑定当前会话
 async function executeExplain(
   messages: ChatMessage[],
   sessionId: number,
@@ -219,7 +231,7 @@ function startNewMultimodalQuery(
   windowTitle?: string | null
 ) {
   activeSessionId++;
-  updateHostBadge(windowTitle || "屏幕截取");
+  updateHostBadge(windowTitle, "屏幕透视");
   const defaultPrompt = prompt || "请分析所选屏幕区域的内容，一针见血透视核心本质与关键信息。";
   conversationMessages = [
     {
@@ -389,7 +401,7 @@ restoreWindowSize();
 async function syncConfigFromBackend() {
   if (!isTauri()) return;
   try {
-    const cfg: any = await invoke("get_app_config");
+    const cfg = await invoke<AppConfig>("get_app_config");
     if (cfg) {
       if (cfg.base_url) localStorage.setItem("glint_base_url", cfg.base_url);
       if (cfg.api_key) localStorage.setItem("glint_api_key", cfg.api_key);
@@ -406,7 +418,7 @@ syncConfigFromBackend();
 
 // 监听跨视窗配置实时同步事件
 if (isTauri()) {
-  listen<any>("glint-settings-changed", (event) => {
+  listen<AppConfig>("glint-settings-changed", (event) => {
     const cfg = event.payload;
     if (cfg) {
       if (cfg.base_url) localStorage.setItem("glint_base_url", cfg.base_url);
@@ -439,7 +451,7 @@ if (isTauri()) {
   );
 
   // 注册 Tauri 原生划词触发事件
-  listen<any>("glint-trigger", (event) => {
+  listen<GlintTriggerPayload | string>("glint-trigger", (event) => {
     let text = "";
     let winTitle: string | null = null;
     if (typeof event.payload === "string") {

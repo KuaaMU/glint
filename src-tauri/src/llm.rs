@@ -257,6 +257,8 @@ async fn fallback_dynamic_explain(
             "在工程层面突破此瓶颈的核心思路是「空间换时间与计算换带宽」：\n1. 结构体对齐（Padding/Align）：将多核高频读写的变量按 64 字节 Cache Line 对齐，消除伪共享；\n2. 算子融合（Operator Fusion）：将连续的多次访存操作合成为单次核函数，中间结果保留在寄存器；\n3. 内存预取（Software Prefetching）：在硬件空闲周期提前将下一次循环所需的数据滑入缓存。".to_string()
         } else if last_user_msg.contains("为什么") || last_user_msg.contains("原因") {
             "造成这个现象的物理根因在于半导体材料与物理距离：CPU 芯片面积有限，极速的 SRAM 只能容纳数兆到数十兆字节；而海量存储必须依赖外挂的 DRAM 芯片。电信号穿透芯片引脚、经过 PCB 主板印刷走线传输，必然存在纳秒级延迟。这不是软件层能简单抽象抹平的，必须正视其物理拓扑。".to_string()
+        } else if let Some(w) = window_title {
+            format!("针对在「{}」情境下的追问“{}”：从高层业务逻辑下沉到底层物理模型，核心在于打破平坦抽象，根据实际场景特征在延迟与吞吐之间做出精确权衡。", w, last_user_msg)
         } else {
             format!("针对追问“{}”：核心在于心智模型的切换——从高级语言‘平坦均匀大数组’的理想假设，切换到‘距离核心远近不一的高速缓存与外部存储集群’的真实物理拓扑，瓶颈往往在于访存延迟而非算力指令。", last_user_msg)
         }

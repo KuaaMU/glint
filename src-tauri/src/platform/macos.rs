@@ -26,8 +26,19 @@ pub fn get_cursor_position() -> (i32, i32) {
 
 #[cfg(target_os = "macos")]
 pub fn get_active_window_title() -> String {
+    let script = r#"
+        tell application "System Events"
+            set frontApp to first application process whose frontmost is true
+            try
+                set winTitle to name of front window of frontApp
+                return (name of frontApp) & " - " & winTitle
+            on error
+                return name of frontApp
+            end try
+        end tell
+    "#;
     let output = Command::new("osascript")
-        .args(["-e", "tell application \"System Events\" to get name of first application process whose frontmost is true"])
+        .args(["-e", script])
         .output();
     if let Ok(out) = output {
         String::from_utf8_lossy(&out.stdout).trim().to_string()

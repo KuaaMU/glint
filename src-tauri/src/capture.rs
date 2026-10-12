@@ -153,9 +153,7 @@ pub fn capture_screen() -> Result<ScreenCaptureResult, String> {
         }
 
         let image_data_url = encode_rgba_to_png_data_url(&rgba_buf, width as u32, height as u32)?;
-
-        let raw_title = crate::platform::get_active_window_title();
-        let window_title = if raw_title.is_empty() { None } else { Some(raw_title) };
+        let window_title = crate::platform::get_active_window_title_opt();
 
         Ok(ScreenCaptureResult {
             image_data_url,
@@ -194,8 +192,7 @@ pub fn generate_fallback_capture(width: u32, height: u32, x: i32, y: i32) -> Scr
     }
 
     let image_data_url = encode_rgba_to_png_data_url(&rgba, w, h).unwrap_or_else(|_| "data:image/png;base64,".to_string());
-    let raw_title = crate::platform::get_active_window_title();
-    let window_title = if raw_title.is_empty() { None } else { Some(raw_title) };
+    let window_title = crate::platform::get_active_window_title_opt();
     ScreenCaptureResult {
         image_data_url,
         geometry: ScreenGeometry {
@@ -227,8 +224,7 @@ fn get_clipboard_with_retry() -> Option<Clipboard> {
     None
 }
 
-/// 基于原生系统更新序列号 (Sequence Number) 与零污染快照的极致采词引擎
-/// 确保：未划选新文本时绝不回退至历史剪贴板，绝不污染系统剪贴板，绝无锁冲突
+/// 划选文本捕获：通过剪贴板序列号变化或快照比对获取当前选中的文本
 pub fn capture_selected_text() -> Option<SelectionResult> {
     let (cursor_x, cursor_y) = get_cursor_pos();
 
@@ -236,10 +232,10 @@ pub fn capture_selected_text() -> Option<SelectionResult> {
     let initial_seq = crate::platform::get_clipboard_sequence();
     let original_snapshot = get_clipboard_with_retry().and_then(|mut c| c.get_text().ok());
 
-    // 2. 触发跨平台目标应用选区模拟复制 (自动等待 Alt 键物理释放并注入硬件扫描码)
+    // 2. 模拟复制操作
     simulate_copy();
 
-    // 3. 高精度智能监听 (轮询至多 350ms，每 15ms 检测一次系统状态)
+    // 3. 轮询检测剪贴板更新 (至多 350ms)
     let mut captured_text: Option<String> = None;
     let start = std::time::Instant::now();
 
@@ -250,8 +246,6 @@ pub fn capture_selected_text() -> Option<SelectionResult> {
         let seq_changed = initial_seq != 0 && current_seq != initial_seq;
 
         if seq_changed {
-            // Windows 硬件级序列号自增：100% 确认目标应用成功提交了新选区
-            // 稍等 10ms 确保目标应用完成剪贴板句柄关闭
             sleep(Duration::from_millis(10));
             if let Some(mut poll_clip) = get_clipboard_with_retry() {
                 if let Ok(new_text) = poll_clip.get_text() {
@@ -263,7 +257,6 @@ pub fn capture_selected_text() -> Option<SelectionResult> {
                 }
             }
         } else if initial_seq == 0 {
-            // 非 Windows 平台环境：通过文本内容差异比对
             if let Some(mut poll_clip) = get_clipboard_with_retry() {
                 if let Ok(current_text) = poll_clip.get_text() {
                     let trimmed = current_text.trim();
@@ -276,7 +269,7 @@ pub fn capture_selected_text() -> Option<SelectionResult> {
         }
     }
 
-    // 4. 超时补偿仲裁：若序列号未变，但剪贴板内容确实已与原快照不同
+    // 4. 超时补偿比对
     if captured_text.is_none() {
         if let Some(mut poll_clip) = get_clipboard_with_retry() {
             if let Ok(current_text) = poll_clip.get_text() {
@@ -288,9 +281,7 @@ pub fn capture_selected_text() -> Option<SelectionResult> {
         }
     }
 
-    // 5. 组装返回结果
-    let raw_title = crate::platform::get_active_window_title();
-    let window_title = if raw_title.is_empty() { None } else { Some(raw_title) };
+    let window_title = crate::platform::get_active_window_title_opt();
 
     captured_text.map(|text| SelectionResult {
         text,

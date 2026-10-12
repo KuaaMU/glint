@@ -131,9 +131,8 @@ pub fn trigger_capture_and_show(app: &AppHandle) {
             Some(res) => (res.text, res.cursor_x, res.cursor_y, res.window_title),
             None => {
                 let (cx, cy) = get_cursor_pos();
-                let raw_title = crate::platform::get_active_window_title();
-                let win_t = if raw_title.is_empty() { None } else { Some(raw_title) };
-                ("".to_string(), cx, cy, win_t)
+                let window_title = crate::platform::get_active_window_title_opt();
+                ("".to_string(), cx, cy, window_title)
             }
         };
 

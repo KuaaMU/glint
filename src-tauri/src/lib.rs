@@ -24,6 +24,11 @@ fn get_selection() -> Option<SelectionResult> {
 }
 
 #[tauri::command]
+fn get_screen_capture() -> Result<capture::ScreenCaptureResult, String> {
+    capture::capture_screen()
+}
+
+#[tauri::command]
 async fn explain(app: AppHandle, mut req: QueryRequest, on_event: Channel<StreamChunk>) {
     // 自动兜底：若前端传来的配置为空，从系统持久化配置 glint.config.json 自动注入
     let cfg = load_config(&app);
@@ -202,6 +207,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             get_selection,
+            get_screen_capture,
             explain,
             reposition_window,
             resize_hud_window,

@@ -258,8 +258,11 @@ pub fn run() {
                     _ => {}
                 });
 
-            if let Some(app_icon) = app.default_window_icon() {
-                tray_builder = tray_builder.icon(app_icon.clone());
+            let app_icon = app.default_window_icon().cloned().or_else(|| {
+                tauri::image::Image::from_app_icon_resource(32).ok()
+            });
+            if let Some(icon) = app_icon {
+                tray_builder = tray_builder.icon(icon);
             }
 
             let _tray = tray_builder.build(app)?;

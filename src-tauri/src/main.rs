@@ -1,5 +1,5 @@
-// Prevents additional console window on Windows in release, DO NOT REMOVE!!
-#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+// 禁用 Windows 终端控制台黑框 (无论是 debug 还是 release 均保持无缝原生桌面体验)
+#![windows_subsystem = "windows"]
 
 fn main() {
     glint_lib::run()

@@ -209,6 +209,16 @@ fn submit_snipping_result(
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        // 关键防御：单实例守卫 (Single Instance Guard)。
+        // 杜绝重复打开进程导致任务栏托盘出现多个冗余图标，重复启动时直接激活并聚焦已有视窗。
+        .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
+            if let Some(hud) = app.get_webview_window("hud") {
+                let (cx, cy) = get_cursor_pos();
+                position_hud_window(&hud, cx, cy);
+                let _ = hud.show();
+                let _ = hud.set_focus();
+            }
+        }))
         .plugin(tauri_plugin_opener::init())
         .setup(|app| {
             // 初始化窗口置顶状态

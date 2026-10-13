@@ -36,7 +36,23 @@ function runChallengeTest(name: string, fn: () => void) {
 }
 
 // Allowed HTML tags in sanitized markdown output
-const ALLOWED_TAGS = new Set(["pre", "/pre", "code", "/code", "strong", "/strong", "br", "br/"]);
+const ALLOWED_TAGS = new Set([
+  "pre", "/pre",
+  "code", "/code",
+  "strong", "/strong",
+  "em", "/em",
+  "a", "/a",
+  "ul", "/ul",
+  "ol", "/ol",
+  "li", "/li",
+  "h1", "/h1",
+  "h2", "/h2",
+  "h3", "/h3",
+  "h4", "/h4",
+  "blockquote", "/blockquote",
+  "hr", "/hr", "hr/",
+  "br", "br/"
+]);
 
 /**
  * Parses tag attributes into key-value pairs following HTML5 attribute syntax

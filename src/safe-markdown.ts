@@ -26,9 +26,8 @@ export function escapeHtml(raw: string): string {
 }
 
 /**
- * Parses inline formatting (inline code `...` and bold **...**) within pre-escaped text.
- * Content inside inline code is preserved as pre-escaped literals.
- * Bold text supports nested inline code.
+ * Parses inline formatting (inline code `...`, bold **...**, italics *...*, links [text](url))
+ * within pre-escaped text.
  */
 export function parseInlineTokens(escapedText: string): string {
   if (!escapedText) return "";
@@ -55,6 +54,36 @@ export function parseInlineTokens(escapedText: string): string {
         const boldContent = escapedText.slice(i + 2, closeIdx);
         result += `<strong>${parseInlineTokens(boldContent)}</strong>`;
         i = closeIdx + 2;
+        continue;
+      }
+    }
+
+    // 3. Links: [text](https://...)
+    if (escapedText[i] === "[") {
+      const bracketClose = escapedText.indexOf("]", i + 1);
+      if (bracketClose !== -1 && escapedText[bracketClose + 1] === "(") {
+        const parenClose = escapedText.indexOf(")", bracketClose + 2);
+        if (parenClose !== -1) {
+          const linkText = escapedText.slice(i + 1, bracketClose);
+          const rawUrl = escapedText.slice(bracketClose + 2, parenClose);
+          // Only allow safe HTTP/HTTPS URLs
+          const unescapedUrl = rawUrl.replace(/&amp;/g, "&");
+          if (/^(https?:\/\/|\/|#)/i.test(unescapedUrl)) {
+            result += `<a class="glint-link" href="${rawUrl}" target="_blank" rel="noopener noreferrer">${parseInlineTokens(linkText)}</a>`;
+            i = parenClose + 1;
+            continue;
+          }
+        }
+      }
+    }
+
+    // 4. Italics text: *[text]* (must not be preceded or followed by *)
+    if (escapedText[i] === "*" && escapedText[i + 1] !== "*" && (i === 0 || escapedText[i - 1] !== "*")) {
+      const closeIdx = escapedText.indexOf("*", i + 1);
+      if (closeIdx !== -1 && escapedText[closeIdx + 1] !== "*" && closeIdx > i + 1) {
+        const italicContent = escapedText.slice(i + 1, closeIdx);
+        result += `<em>${parseInlineTokens(italicContent)}</em>`;
+        i = closeIdx + 1;
         continue;
       }
     }
@@ -113,26 +142,40 @@ export function renderSafeMarkdown(markdown: string): string {
 
   // Normalize Windows/Mac line endings to \n
   const normalized = markdown.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
-  const lines = normalized.split("\n");
-  const output: string[] = [];
+  const rawLines = normalized.split("\n");
+  const processedBlocks: string[] = [];
 
   let inCodeBlock = false;
   let codeBlockLang = "";
   let codeBlockLines: string[] = [];
 
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
+  // 状态机处理行级元素
+  let currentListType: "ul" | "ol" | null = null;
+  let listItems: string[] = [];
+
+  const flushList = () => {
+    if (!currentListType || listItems.length === 0) return;
+    const tag = currentListType;
+    const cls = currentListType === "ul" ? "glint-list-ul" : "glint-list-ol";
+    const inner = listItems.map((it) => `<li class="glint-list-item">${it}</li>`).join("");
+    processedBlocks.push(`<${tag} class="${cls}">${inner}</${tag}>`);
+    currentListType = null;
+    listItems = [];
+  };
+
+  for (let i = 0; i < rawLines.length; i++) {
+    const line = rawLines[i];
     const trimmed = line.trim();
 
+    // 围栏代码块检测
     if (trimmed.startsWith("```")) {
+      flushList();
       if (inCodeBlock) {
-        // Closing code block
-        output.push(renderWidgetOrCodeBlock(codeBlockLang, codeBlockLines));
+        processedBlocks.push(renderWidgetOrCodeBlock(codeBlockLang, codeBlockLines));
         inCodeBlock = false;
         codeBlockLang = "";
         codeBlockLines = [];
       } else {
-        // Opening code block
         inCodeBlock = true;
         codeBlockLang = trimmed.slice(3).trim();
         codeBlockLines = [];
@@ -142,30 +185,103 @@ export function renderSafeMarkdown(markdown: string): string {
 
     if (inCodeBlock) {
       codeBlockLines.push(line);
-    } else {
-      // Normal line outside code block
-      const escaped = escapeHtml(line);
-      output.push(parseInlineTokens(escaped));
+      continue;
     }
+
+    // 空行：重置列表
+    if (trimmed === "") {
+      flushList();
+      processedBlocks.push("");
+      continue;
+    }
+
+    // 1. 无序列表: - item 或 * item
+    const ulMatch = line.match(/^(\s*)([-*+])\s+(.+)$/);
+    if (ulMatch && ulMatch[2] !== "*" || (ulMatch && !trimmed.startsWith("**"))) {
+      if (currentListType !== "ul") {
+        flushList();
+        currentListType = "ul";
+      }
+      const itemContent = parseInlineTokens(escapeHtml(ulMatch[3]));
+      listItems.push(itemContent);
+      continue;
+    }
+
+    // 2. 有序列表: 1. item
+    const olMatch = line.match(/^(\s*)(\d+)\.\s+(.+)$/);
+    if (olMatch) {
+      if (currentListType !== "ol") {
+        flushList();
+        currentListType = "ol";
+      }
+      const itemContent = parseInlineTokens(escapeHtml(olMatch[3]));
+      listItems.push(itemContent);
+      continue;
+    }
+
+    // 非列表行，刷新正在收集的列表
+    flushList();
+
+    // 3. 标题: # H1, ## H2, ### H3, #### H4
+    const headingMatch = trimmed.match(/^(#{1,4})\s+(.+)$/);
+    if (headingMatch) {
+      const level = headingMatch[1].length;
+      const headingText = parseInlineTokens(escapeHtml(headingMatch[2]));
+      processedBlocks.push(`<h${level} class="glint-heading glint-h${level}">${headingText}</h${level}>`);
+      continue;
+    }
+
+    // 4. 引用块: > quote
+    if (trimmed.startsWith(">")) {
+      const quoteText = parseInlineTokens(escapeHtml(trimmed.slice(1).trim()));
+      processedBlocks.push(`<blockquote class="glint-blockquote">${quoteText}</blockquote>`);
+      continue;
+    }
+
+    // 5. 分割线: --- or ***
+    if (/^([-*_]){3,}$/.test(trimmed)) {
+      processedBlocks.push(`<hr class="glint-hr" />`);
+      continue;
+    }
+
+    // 普通文本行
+    const escaped = escapeHtml(line);
+    processedBlocks.push(parseInlineTokens(escaped));
   }
 
-  // Gracefully close streaming code block if still open
+  // 收尾：流式未闭合代码块或未闭合列表
+  flushList();
   if (inCodeBlock) {
-    output.push(renderWidgetOrCodeBlock(codeBlockLang, codeBlockLines));
+    processedBlocks.push(renderWidgetOrCodeBlock(codeBlockLang, codeBlockLines));
   }
 
-  // Assemble HTML with newline handling:
-  // Non-block lines are connected with <br/> (empty lines naturally create <br/><br/>)
+  // 拼接 HTML 块
   let html = "";
-  for (let i = 0; i < output.length; i++) {
-    const part = output[i];
+  for (let i = 0; i < processedBlocks.length; i++) {
+    const part = processedBlocks[i];
+    if (part === "") {
+      html += "<br/>";
+      continue;
+    }
+
     const isBlock =
       part.startsWith('<pre class="glint-code-block"') ||
+      part.startsWith('<ul class="') ||
+      part.startsWith('<ol class="') ||
+      part.startsWith('<h') ||
+      part.startsWith('<blockquote') ||
+      part.startsWith('<hr') ||
       part.includes('class="glint-widget');
+
     const prevIsBlock =
       i > 0 &&
-      (output[i - 1].startsWith('<pre class="glint-code-block"') ||
-        output[i - 1].includes('class="glint-widget'));
+      (processedBlocks[i - 1].startsWith('<pre class="glint-code-block"') ||
+        processedBlocks[i - 1].startsWith('<ul class="') ||
+        processedBlocks[i - 1].startsWith('<ol class="') ||
+        processedBlocks[i - 1].startsWith('<h') ||
+        processedBlocks[i - 1].startsWith('<blockquote') ||
+        processedBlocks[i - 1].startsWith('<hr') ||
+        processedBlocks[i - 1].includes('class="glint-widget'));
 
     if (i === 0) {
       html += part;

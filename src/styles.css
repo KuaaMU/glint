@@ -1,9 +1,10 @@
-/* Glint HUD 伴生卡片核心样式 (Liquid Glass & Hairline Streamer) */
+/* Glint HUD 伴生卡片核心样式 (Liquid Frosted Glass & Hairline Streamer) */
 
 :root {
-  --card-glass: rgba(12, 16, 26, 0.86);
+  /* 默认主题：Obsidian Frost (黑曜雾光) */
+  --card-glass: rgba(10, 14, 23, 0.82);
   --card-border: rgba(255, 255, 255, 0.08);
-  --hairline-edge: rgba(255, 255, 255, 0.12);
+  --hairline-edge: rgba(255, 255, 255, 0.14);
   --text-main: #f8fafc;
   --text-muted: #94a3b8;
   --text-dim: #64748b;
@@ -12,15 +13,94 @@
   --anchor-dot: #38bdf8;
   --accent-cyan: #38bdf8;
   --accent-indigo: #818cf8;
+  --scrollbar-thumb: rgba(255, 255, 255, 0.15);
+  --scrollbar-thumb-hover: rgba(56, 189, 248, 0.45);
   --font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
   --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
 }
 
+/* 主题 2: Nordic Aurora (极光琉璃) */
+body[data-theme="aurora"],
+:root[data-theme="aurora"] {
+  --card-glass: rgba(8, 20, 22, 0.82);
+  --card-border: rgba(52, 211, 153, 0.15);
+  --hairline-edge: rgba(52, 211, 153, 0.25);
+  --text-main: #ecfdf5;
+  --text-muted: #a7f3d0;
+  --text-dim: #059669;
+  --input-bg: rgba(4, 16, 17, 0.45);
+  --input-border: rgba(52, 211, 153, 0.16);
+  --anchor-dot: #10b981;
+  --accent-cyan: #34d399;
+  --accent-indigo: #06b6d4;
+  --scrollbar-thumb: rgba(52, 211, 153, 0.18);
+  --scrollbar-thumb-hover: rgba(52, 211, 153, 0.5);
+}
+
+/* 主题 3: Cyber Amethyst (赛博紫晶) */
+body[data-theme="amethyst"],
+:root[data-theme="amethyst"] {
+  --card-glass: rgba(18, 12, 28, 0.84);
+  --card-border: rgba(192, 132, 252, 0.16);
+  --hairline-edge: rgba(192, 132, 252, 0.26);
+  --text-main: #faf5ff;
+  --text-muted: #d8b4fe;
+  --text-dim: #9333ea;
+  --input-bg: rgba(12, 8, 20, 0.45);
+  --input-border: rgba(192, 132, 252, 0.16);
+  --anchor-dot: #c084fc;
+  --accent-cyan: #c084fc;
+  --accent-indigo: #f472b6;
+  --scrollbar-thumb: rgba(192, 132, 252, 0.2);
+  --scrollbar-thumb-hover: rgba(192, 132, 252, 0.55);
+}
+
+/* 主题 4: E-Paper Crisp (墨水纸感 · 高对比极简) */
+body[data-theme="epaper"],
+:root[data-theme="epaper"] {
+  --card-glass: rgba(22, 24, 29, 0.94);
+  --card-border: rgba(255, 255, 255, 0.14);
+  --hairline-edge: rgba(255, 255, 255, 0.22);
+  --text-main: #ffffff;
+  --text-muted: #cbd5e1;
+  --text-dim: #94a3b8;
+  --input-bg: rgba(15, 17, 21, 0.6);
+  --input-border: rgba(255, 255, 255, 0.15);
+  --anchor-dot: #e2e8f0;
+  --accent-cyan: #e2e8f0;
+  --accent-indigo: #94a3b8;
+  --scrollbar-thumb: rgba(255, 255, 255, 0.22);
+  --scrollbar-thumb-hover: rgba(255, 255, 255, 0.6);
+}
+
+/* 全局消除突兀原生滚动条，采用现代隐形流光微轨 */
 * {
   box-sizing: border-box;
   margin: 0;
   padding: 0;
   -webkit-font-smoothing: antialiased;
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar-thumb) transparent;
+}
+
+*::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
+  background: transparent;
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb);
+  border-radius: 9999px;
+  transition: background 0.2s ease;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--scrollbar-thumb-hover);
 }
 
 html, body {
@@ -34,14 +114,14 @@ html, body {
   user-select: text;
 }
 
-/* 核心浮动卡片：贴合视窗边缘，极致琉璃透光质感 */
+/* 核心浮动卡片：贴合视窗边缘，极致雾化磨砂 (Frosted Glass Acrylic) 质感 */
 .glint-card {
   position: relative;
   background: var(--card-glass);
-  backdrop-filter: blur(32px) saturate(190%);
-  -webkit-backdrop-filter: blur(32px) saturate(190%);
+  backdrop-filter: blur(40px) saturate(210%);
+  -webkit-backdrop-filter: blur(40px) saturate(210%);
   border: 1px solid var(--card-border);
-  box-shadow: inset 0 1px 0 var(--hairline-edge), 0 20px 45px rgba(0, 0, 0, 0.55);
+  box-shadow: inset 0 1px 0 var(--hairline-edge), 0 20px 50px rgba(0, 0, 0, 0.65);
   border-radius: 12px;
   width: 100vw;
   height: 100vh;
@@ -303,6 +383,112 @@ html, body {
 .explanation-text strong {
   font-weight: 600;
   color: #ffffff;
+}
+
+/* 标题排版：微型胶囊与流光强调 */
+.glint-heading {
+  font-weight: 650;
+  color: #ffffff;
+  margin: 14px 0 6px 0;
+  line-height: 1.4;
+  letter-spacing: -0.01em;
+}
+
+.glint-h1 {
+  font-size: 15px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  padding-bottom: 4px;
+}
+
+.glint-h2 {
+  font-size: 14px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.glint-h2::before {
+  content: "";
+  display: inline-block;
+  width: 3px;
+  height: 12px;
+  background: var(--accent-cyan);
+  border-radius: 9999px;
+}
+
+.glint-h3, .glint-h4 {
+  font-size: 13px;
+  color: #e2e8f0;
+}
+
+/* 列表排版：呼吸微圆点与现代网格留白 */
+.glint-list-ul, .glint-list-ol {
+  margin: 6px 0 8px 18px;
+  padding: 0;
+}
+
+.glint-list-ul {
+  list-style-type: none;
+  margin-left: 0;
+}
+
+.glint-list-item {
+  position: relative;
+  margin-bottom: 4px;
+  line-height: 1.6;
+  color: var(--text-main);
+}
+
+.glint-list-ul .glint-list-item {
+  padding-left: 14px;
+}
+
+.glint-list-ul .glint-list-item::before {
+  content: "";
+  position: absolute;
+  left: 3px;
+  top: 9px;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--accent-cyan);
+  box-shadow: 0 0 6px var(--accent-cyan);
+}
+
+.glint-list-ol .glint-list-item {
+  padding-left: 4px;
+}
+
+/* 引用块：半透明左侧光条 */
+.glint-blockquote {
+  border-left: 2.5px solid var(--accent-cyan);
+  background: rgba(255, 255, 255, 0.03);
+  padding: 6px 12px;
+  margin: 8px 0;
+  border-radius: 0 6px 6px 0;
+  color: var(--text-muted);
+  font-size: 12.5px;
+}
+
+/* 安全超链接 */
+.glint-link {
+  color: var(--accent-cyan);
+  text-decoration: none;
+  border-bottom: 1px dashed rgba(56, 189, 248, 0.4);
+  transition: all 0.15s ease;
+}
+
+.glint-link:hover {
+  color: #ffffff;
+  border-bottom-style: solid;
+}
+
+/* 分割线 */
+.glint-hr {
+  border: none;
+  height: 1px;
+  background: rgba(255, 255, 255, 0.08);
+  margin: 12px 0;
 }
 
 .stream-error-notice {

@@ -15,8 +15,16 @@ interface AppConfig {
   base_url?: string;
   api_key?: string;
   model?: string;
+  theme?: string;
   always_on_top?: boolean;
 }
+
+function applyTheme(themeName?: string) {
+  const chosen = themeName || localStorage.getItem("glint_theme") || "dark";
+  document.body.dataset.theme = chosen;
+  document.documentElement.dataset.theme = chosen;
+}
+applyTheme();
 
 interface GlintTriggerPayload {
   text?: string;
@@ -754,6 +762,10 @@ async function syncConfigFromBackend() {
       if (cfg.base_url) localStorage.setItem("glint_base_url", cfg.base_url);
       if (cfg.api_key) localStorage.setItem("glint_api_key", cfg.api_key);
       if (cfg.model) localStorage.setItem("glint_model", cfg.model);
+      if (cfg.theme) {
+        localStorage.setItem("glint_theme", cfg.theme);
+        applyTheme(cfg.theme);
+      }
       if (cfg.always_on_top !== undefined) {
         localStorage.setItem("glint_always_on_top", cfg.always_on_top.toString());
       }
@@ -772,6 +784,10 @@ if (isTauri()) {
       if (cfg.base_url) localStorage.setItem("glint_base_url", cfg.base_url);
       if (cfg.api_key !== undefined) localStorage.setItem("glint_api_key", cfg.api_key);
       if (cfg.model) localStorage.setItem("glint_model", cfg.model);
+      if (cfg.theme) {
+        localStorage.setItem("glint_theme", cfg.theme);
+        applyTheme(cfg.theme);
+      }
       if (cfg.always_on_top !== undefined) {
         localStorage.setItem("glint_always_on_top", cfg.always_on_top.toString());
       }

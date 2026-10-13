@@ -169,7 +169,34 @@ prefModelSelect.addEventListener("change", () => {
   }
 });
 
-// 载入已有配置
+// 主题切换交互
+let currentSelectedTheme = localStorage.getItem("glint_theme") || "dark";
+const themeButtons = document.querySelectorAll<HTMLButtonElement>(".theme-btn");
+
+function updateThemeUI(theme: string) {
+  currentSelectedTheme = theme;
+  themeButtons.forEach((btn) => {
+    if (btn.dataset.theme === theme) {
+      btn.classList.add("active");
+    } else {
+      btn.classList.remove("active");
+    }
+  });
+  document.body.dataset.theme = theme;
+  document.documentElement.dataset.theme = theme;
+}
+
+themeButtons.forEach((btn) => {
+  btn.addEventListener("click", () => {
+    const t = btn.dataset.theme;
+    if (t) {
+      updateThemeUI(t);
+      saveConfig();
+    }
+  });
+});
+
+// 加载初始配置
 async function loadConfig() {
   if (isTauri()) {
     try {
@@ -178,6 +205,9 @@ async function loadConfig() {
       prefApiKey.value = cfg.api_key || "";
       prefModel.value = cfg.model || "deepseek-chat";
       prefAlwaysOnTop.checked = cfg.always_on_top ?? true;
+      if (cfg.theme) {
+        updateThemeUI(cfg.theme);
+      }
       return;
     } catch (e) {
       console.warn("加载配置异常:", e);
@@ -188,6 +218,7 @@ async function loadConfig() {
   prefApiKey.value = localStorage.getItem("glint_api_key") || "";
   prefModel.value = localStorage.getItem("glint_model") || "deepseek-chat";
   prefAlwaysOnTop.checked = localStorage.getItem("glint_always_on_top") !== "false";
+  updateThemeUI(currentSelectedTheme);
 }
 
 // 保存配置
@@ -200,13 +231,14 @@ async function saveConfig() {
     hotkey_trigger: "Alt+Q",
     hotkey_toggle: "Alt+D",
     icon_plan: "master",
-    theme: "dark",
+    theme: currentSelectedTheme,
     always_on_top: prefAlwaysOnTop.checked,
   };
 
   localStorage.setItem("glint_base_url", config.base_url);
   localStorage.setItem("glint_api_key", config.api_key);
   localStorage.setItem("glint_model", config.model);
+  localStorage.setItem("glint_theme", config.theme);
   localStorage.setItem("glint_always_on_top", config.always_on_top.toString());
 
   if (isTauri()) {

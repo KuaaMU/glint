@@ -180,7 +180,17 @@ pub async fn stream_explanation(req: QueryRequest, channel: Channel<StreamChunk>
         return;
     }
 
-    let client = match Client::builder().timeout(Duration::from_secs(60)).build() {
+    // 建立健壮的流式 HTTP/1.1 客户端，规避代理环境下 HTTP/2 多路复用流异常重置 (error decoding response body)
+    let client = match Client::builder()
+        .http1_only()
+        .tcp_keepalive(Duration::from_secs(15))
+        .no_gzip()
+        .no_brotli()
+        .no_deflate()
+        .connect_timeout(Duration::from_secs(10))
+        .timeout(Duration::from_secs(90))
+        .build()
+    {
         Ok(c) => c,
         Err(e) => {
             let _ = channel.send(StreamChunk::Error(e.to_string()));
@@ -200,6 +210,9 @@ pub async fn stream_explanation(req: QueryRequest, channel: Channel<StreamChunk>
         .post(&endpoint)
         .header("Authorization", format!("Bearer {}", api_key))
         .header("Content-Type", "application/json")
+        .header("Accept", "text/event-stream")
+        .header("Cache-Control", "no-cache")
+        .header("Connection", "keep-alive")
         .json(&body)
         .send()
         .await

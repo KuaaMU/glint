@@ -2,6 +2,13 @@ import { invoke, Channel, isTauri } from "@tauri-apps/api/core";
 import { getCurrentWindow, LogicalSize } from "@tauri-apps/api/window";
 import { listen } from "@tauri-apps/api/event";
 import { renderSafeMarkdown, truncateSelection, emptyElement } from "./safe-markdown.ts";
+import { createToolCallElement } from "./generative-ui.ts";
+import {
+  HistoryStore,
+  type GlintSessionRecord,
+  type ChatMessage,
+  type MessageContent,
+} from "./history-store.ts";
 
 interface AppConfig {
   base_url?: string;
@@ -15,20 +22,16 @@ interface GlintTriggerPayload {
   window_title?: string | null;
 }
 
-interface StreamChunk {
-  type: "Token" | "Done" | "Error";
-  data?: string;
+interface ToolCallPayload {
+  name: string;
+  args: string;
+  status: string;
+  result?: string | null;
 }
 
-type ContentPart =
-  | { type: "text"; text: string }
-  | { type: "image_url"; image_url: { url: string } };
-
-type MessageContent = string | ContentPart[];
-
-interface ChatMessage {
-  role: "system" | "user" | "assistant";
-  content: MessageContent;
+interface StreamChunk {
+  type: "Token" | "ToolCall" | "Done" | "Error";
+  data?: string | ToolCallPayload;
 }
 
 interface QueryRequest {
@@ -47,6 +50,14 @@ const btnSendFollowup = document.getElementById("btn-send-followup") as HTMLButt
 const btnCloseCard = document.getElementById("btn-close-card") as HTMLButtonElement;
 const btnSettingsToggle = document.getElementById("btn-settings-toggle") as HTMLButtonElement;
 const btnSnipToggle = document.getElementById("btn-snip-toggle") as HTMLButtonElement | null;
+const btnHistoryToggle = document.getElementById("btn-history-toggle") as HTMLButtonElement | null;
+const historyDrawer = document.getElementById("history-drawer") as HTMLDivElement | null;
+const btnCloseHistory = document.getElementById("btn-close-history") as HTMLButtonElement | null;
+const historySearchInput = document.getElementById("history-search-input") as HTMLInputElement | null;
+const historyList = document.getElementById("history-list") as HTMLDivElement | null;
+const btnExportMarkdown = document.getElementById("btn-export-markdown") as HTMLButtonElement | null;
+const btnClearHistory = document.getElementById("btn-clear-history") as HTMLButtonElement | null;
+
 const hostBadge = document.getElementById("host-badge") as HTMLDivElement | null;
 const hostTitle = document.getElementById("host-title") as HTMLSpanElement | null;
 const cardHandle = document.querySelector(".card-anchor-handle") as HTMLElement;
@@ -70,6 +81,10 @@ function updateTruncationUI(truncated: boolean, originalLen: number) {
 // 会话状态管理
 let conversationMessages: ChatMessage[] = [];
 let activeSessionId = 0;
+let currentSessionId = "";
+let currentSessionCreatedAt = 0;
+let currentSessionIsMultimodal = false;
+let currentSessionImageDataUrl = "";
 let currentHostTitle: string | null = null;
 
 // 配置状态获取
@@ -145,22 +160,47 @@ async function executeExplain(
     emptyElement(explanationText);
   }
 
+  // 工具调用胶囊映射 (保证同一个工具调用状态就地更新)
+  const toolElementsMap = new Map<string, HTMLElement>();
+
   onEvent.onmessage = (chunk: StreamChunk) => {
     // 丢弃已经过期会话的消息
     if (sessionId !== activeSessionId) return;
 
-    if (chunk.type === "Token" && chunk.data) {
+    if (chunk.type === "Token" && typeof chunk.data === "string") {
       currentTurnText += chunk.data;
       targetOutputEl.innerHTML = renderSafeMarkdown(currentTurnText);
+      // 保持已挂载的工具调用胶囊附着在顶部
+      for (const toolEl of toolElementsMap.values()) {
+        if (!targetOutputEl.contains(toolEl)) {
+          targetOutputEl.insertBefore(toolEl, targetOutputEl.firstChild);
+        }
+      }
+      explanationText.scrollTop = explanationText.scrollHeight;
+    } else if (chunk.type === "ToolCall" && chunk.data && typeof chunk.data === "object") {
+      const toolPayload = chunk.data as ToolCallPayload;
+      const toolKey = `${toolPayload.name}_${toolPayload.args}`;
+      const existingEl = toolElementsMap.get(toolKey);
+      const newEl = createToolCallElement(toolPayload);
+
+      if (existingEl && targetOutputEl.contains(existingEl)) {
+        existingEl.replaceWith(newEl);
+      } else {
+        targetOutputEl.insertBefore(newEl, targetOutputEl.firstChild);
+      }
+      toolElementsMap.set(toolKey, newEl);
       explanationText.scrollTop = explanationText.scrollHeight;
     } else if (chunk.type === "Done") {
       statusIndicator.style.display = "none";
       conversationMessages.push({ role: "assistant", content: currentTurnText });
+
+      // 持久化保存至本地历史存储
+      saveCurrentSessionToHistory(currentTurnText);
     } else if (chunk.type === "Error") {
       statusIndicator.style.display = "none";
       const errNotice = document.createElement("div");
       errNotice.className = "stream-error-notice";
-      errNotice.textContent = `⚠️ ${chunk.data || "请求出错"}`;
+      errNotice.textContent = `⚠️ ${typeof chunk.data === "string" ? chunk.data : "请求出错"}`;
       targetOutputEl.appendChild(errNotice);
     }
   };
@@ -188,6 +228,30 @@ async function executeExplain(
   }
 }
 
+// 自动持久化保存当前会话
+function saveCurrentSessionToHistory(lastTurnOutput: string) {
+  if (!currentSessionId) {
+    currentSessionId = `glint_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+    currentSessionCreatedAt = Date.now();
+  }
+
+  const firstUserMsg = conversationMessages[0];
+  const querySummary = firstUserMsg ? getMessageDisplaySummary(firstUserMsg.content) : "透视查询";
+  const cleanSnippet = lastTurnOutput.replace(/```[\s\S]*?```/g, "").trim().slice(0, 100);
+
+  HistoryStore.save({
+    id: currentSessionId,
+    createdAt: currentSessionCreatedAt || Date.now(),
+    updatedAt: Date.now(),
+    hostTitle: currentHostTitle,
+    queryText: querySummary,
+    isMultimodal: currentSessionIsMultimodal,
+    imageDataUrl: currentSessionImageDataUrl || undefined,
+    previewSnippet: cleanSnippet || lastTurnOutput.slice(0, 80),
+    messages: [...conversationMessages],
+  });
+}
+
 // 模拟流式输出 (用于纯前端浏览器环境)
 async function simulateMockStream(
   messages: ChatMessage[],
@@ -207,6 +271,76 @@ async function simulateMockStream(
   if (hasImage && messages.length === 1) {
     reply =
       "【视觉多模态透视】已定位屏幕焦点：\n1. 场景结构：所选区域包含当前窗口的核心交互意图与标注重点；\n2. 本质洞察：利用 Focus-First 渐进式透镜消除视觉干扰，直接聚合关键结论；\n3. 深入探讨：可在下方直接就该区域的某个细节继续追问。";
+  } else if (lastUserSummary.includes("B-Tree") || lastUserSummary.includes("LSM") || lastUserSummary.includes("树")) {
+    if (channel.onmessage) {
+      channel.onmessage({
+        type: "ToolCall",
+        data: {
+          name: "lookup_doc",
+          args: JSON.stringify({ query: "B-Tree vs LSM-Tree", domain: "database" }),
+          status: "calling",
+        },
+      });
+      await new Promise((r) => setTimeout(r, 120));
+      channel.onmessage({
+        type: "ToolCall",
+        data: {
+          name: "lookup_doc",
+          args: JSON.stringify({ query: "B-Tree vs LSM-Tree", domain: "database" }),
+          status: "done",
+          result: "B-Tree 原地更新点读极高，LSM-Tree 追加写吞吐极大。",
+        },
+      });
+      await new Promise((r) => setTimeout(r, 60));
+    }
+    reply =
+      "B-Tree 与 LSM-Tree 是现代存储引擎的两大基本派系，分别代表对点读与写吞吐的极致权衡：\n\n```widget:compare\n{\n  \"title\": \"存储引擎架构选型矩阵\",\n  \"columns\": [\"对比维度\", \"B-Tree (InnoDB / SQLite)\", \"LSM-Tree (RocksDB / ClickHouse)\"],\n  \"rows\": [\n    [\"写入模型\", \"原地更新 (In-place)\", \"追加写入 (Append-Only WAL)\"],\n    [\"读性能\", \"极快点读 O(log N)\", \"较慢点读 (需多层 SSTable 与布隆过滤器)\"],\n    [\"写放大与吞吐\", \"随机写易引起页分裂\", \"顺序高吞吐，后台Compaction整理\"]\n  ]\n}\n```\n\n- **B-Tree 核心优势**：适合读多写少、事务强一致性场景；\n- **LSM-Tree 核心优势**：适合海量写入、日志追加与分布式时序数据。";
+  } else if (lastUserSummary.includes("0x") || lastUserSummary.includes(">>") || lastUserSummary.includes("<<")) {
+    if (channel.onmessage) {
+      channel.onmessage({
+        type: "ToolCall",
+        data: {
+          name: "calc_sandbox",
+          args: JSON.stringify({ expression: "0x1000 >> 4" }),
+          status: "calling",
+        },
+      });
+      await new Promise((r) => setTimeout(r, 100));
+      channel.onmessage({
+        type: "ToolCall",
+        data: {
+          name: "calc_sandbox",
+          args: JSON.stringify({ expression: "0x1000 >> 4" }),
+          status: "done",
+          result: "4096 >> 4 = 256 (0x100)",
+        },
+      });
+    }
+    reply =
+      "位运算沙箱已安全完成求值：\n\n```widget:metrics\n{\n  \"title\": \"数值转换与位拓扑\",\n  \"items\": [\n    {\"label\": \"十六进制 Hex\", \"value\": \"0x1000\", \"tone\": \"cyan\"},\n    {\"label\": \"十进制 Dec\", \"value\": \"4096\", \"tone\": \"cyan\"},\n    {\"label\": \"右移4位 >> 4\", \"value\": \"256 (0x100)\", \"tone\": \"amber\"},\n    {\"label\": \"二进制 Bin\", \"value\": \"0b100000000\", \"tone\": \"neutral\"}\n  ]\n}\n```";
+  } else if (lastUserSummary.includes("零拷贝") || lastUserSummary.includes("Zero-Copy") || lastUserSummary.includes("mmap")) {
+    if (channel.onmessage) {
+      channel.onmessage({
+        type: "ToolCall",
+        data: {
+          name: "lookup_doc",
+          args: JSON.stringify({ query: "Zero-Copy sendfile", domain: "linux" }),
+          status: "calling",
+        },
+      });
+      await new Promise((r) => setTimeout(r, 100));
+      channel.onmessage({
+        type: "ToolCall",
+        data: {
+          name: "lookup_doc",
+          args: JSON.stringify({ query: "Zero-Copy sendfile", domain: "linux" }),
+          status: "done",
+          result: "sendfile(2) / splice(2) 绕过内核态到用户态的重复拷贝。",
+        },
+      });
+    }
+    reply =
+      "零拷贝的核心在于消除用户空间与内核空间的无意义搬运：\n\n```widget:flow\n{\n  \"title\": \"零拷贝 (Zero-Copy) 数据流转\",\n  \"steps\": [\n    {\"title\": \"1. 磁盘 DMA 读取\", \"desc\": \"数据由 DMA 控制器直接载入内核缓冲区\"},\n    {\"title\": \"2. 规避用户空间\", \"desc\": \"sendfile/splice 不再将数据复制到用户态内存\"},\n    {\"title\": \"3. 协议栈发送\", \"desc\": \"直接由内核传输至网卡缓冲区发送，切换次数从4次降为2次\"}\n  ]\n}\n```";
   } else if (messages.length > 1) {
     if (lastUserSummary.includes("GPU") || lastUserSummary.includes("显卡")) {
       reply =
@@ -236,6 +370,11 @@ async function simulateMockStream(
 // 开始纯文本透视会话
 function startNewQuery(text: string, windowTitle?: string | null) {
   activeSessionId++;
+  currentSessionId = `glint_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+  currentSessionCreatedAt = Date.now();
+  currentSessionIsMultimodal = false;
+  currentSessionImageDataUrl = "";
+
   updateHostBadge(windowTitle);
   const truncatedResult = truncateSelection(text, 3000);
   updateTruncationUI(truncatedResult.truncated, truncatedResult.originalLen);
@@ -250,6 +389,11 @@ function startNewMultimodalQuery(
   windowTitle?: string | null
 ) {
   activeSessionId++;
+  currentSessionId = `glint_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+  currentSessionCreatedAt = Date.now();
+  currentSessionIsMultimodal = true;
+  currentSessionImageDataUrl = imageDataUrl;
+
   updateTruncationUI(false, 0);
   updateHostBadge(windowTitle, "屏幕透视");
   const defaultPrompt = prompt || "请分析所选屏幕区域的内容，一针见血透视核心本质与关键信息。";
@@ -381,6 +525,184 @@ followupInput.addEventListener("keydown", (e) => {
 });
 btnSendFollowup.addEventListener("click", sendFollowup);
 
+// 相对时间格式化
+function formatRelativeTime(timestamp: number): string {
+  const diffSec = Math.floor((Date.now() - timestamp) / 1000);
+  if (diffSec < 60) return "刚刚";
+  const diffMin = Math.floor(diffSec / 60);
+  if (diffMin < 60) return `${diffMin}分钟前`;
+  const diffHour = Math.floor(diffMin / 60);
+  if (diffHour < 24) return `${diffHour}小时前`;
+  const diffDay = Math.floor(diffHour / 24);
+  if (diffDay < 7) return `${diffDay}天前`;
+  return new Date(timestamp).toLocaleDateString();
+}
+
+// 渲染历史记录列表
+function renderHistoryList(filterKeyword?: string) {
+  if (!historyList) return;
+  emptyElement(historyList);
+
+  const sessions = filterKeyword ? HistoryStore.search(filterKeyword) : HistoryStore.getAll();
+  if (sessions.length === 0) {
+    const tip = document.createElement("div");
+    tip.className = "history-empty-tip";
+    tip.textContent = filterKeyword ? "未搜索到匹配的历史记录" : "暂无历史记录 · 划词透视后将自动归档";
+    historyList.appendChild(tip);
+    return;
+  }
+
+  for (const sess of sessions) {
+    const item = document.createElement("div");
+    item.className = "history-item";
+
+    const top = document.createElement("div");
+    top.className = "history-item-top";
+
+    const timeSpan = document.createElement("span");
+    timeSpan.className = "history-time";
+    timeSpan.textContent = formatRelativeTime(sess.createdAt);
+    top.appendChild(timeSpan);
+
+    if (sess.hostTitle) {
+      const hostSpan = document.createElement("span");
+      hostSpan.className = "history-host-tag";
+      hostSpan.textContent = sess.hostTitle;
+      top.appendChild(hostSpan);
+    }
+
+    const queryDiv = document.createElement("div");
+    queryDiv.className = "history-query";
+    queryDiv.textContent = sess.queryText;
+
+    const snippetDiv = document.createElement("div");
+    snippetDiv.className = "history-snippet";
+    snippetDiv.textContent = sess.previewSnippet || "暂无摘要预览";
+
+    const delBtn = document.createElement("button");
+    delBtn.className = "history-item-del-btn";
+    delBtn.title = "删除此条会话";
+    delBtn.textContent = "✕";
+    delBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      HistoryStore.delete(sess.id);
+      renderHistoryList(historySearchInput?.value);
+    });
+
+    item.append(top, queryDiv, snippetDiv, delBtn);
+
+    item.addEventListener("click", () => {
+      restoreSession(sess);
+    });
+
+    historyList.appendChild(item);
+  }
+}
+
+// 恢复历史会话到主视窗
+function restoreSession(session: GlintSessionRecord) {
+  activeSessionId++;
+  currentSessionId = session.id;
+  currentSessionCreatedAt = session.createdAt;
+  currentSessionIsMultimodal = !!session.isMultimodal;
+  currentSessionImageDataUrl = session.imageDataUrl || "";
+
+  updateHostBadge(session.hostTitle);
+  conversationMessages = [...session.messages];
+  updateTruncationUI(false, 0);
+
+  emptyElement(explanationText);
+
+  // 恢复截图预览横幅
+  if (session.isMultimodal && session.imageDataUrl) {
+    const banner = document.createElement("div");
+    banner.className = "capture-preview-banner";
+    const img = document.createElement("img");
+    img.src = session.imageDataUrl;
+    img.alt = "截屏预览";
+    const badge = document.createElement("span");
+    badge.className = "preview-badge";
+    badge.textContent = "✨ 视觉透视";
+    banner.append(img, badge);
+    explanationText.appendChild(banner);
+  }
+
+  // 重新渲染全部问答回合
+  for (let i = 0; i < conversationMessages.length; i++) {
+    const msg = conversationMessages[i];
+    if (msg.role === "user") {
+      if (i > 0) {
+        const qDiv = document.createElement("div");
+        qDiv.style.cssText =
+          "font-weight:600; color:var(--text-muted); margin:12px 0 6px 0; font-size:12px; border-top:1px dashed rgba(255,255,255,0.08); padding-top:8px;";
+        qDiv.textContent = `追问: ${getMessageDisplaySummary(msg.content)}`;
+        explanationText.appendChild(qDiv);
+      }
+    } else if (msg.role === "assistant") {
+      const aDiv = document.createElement("div");
+      if (i > 1) aDiv.className = "reply-turn";
+      aDiv.innerHTML = renderSafeMarkdown(typeof msg.content === "string" ? msg.content : "");
+      explanationText.appendChild(aDiv);
+    }
+  }
+
+  toggleHistoryDrawer(false);
+  followupInput.focus();
+}
+
+// 打开或关闭历史抽屉
+function toggleHistoryDrawer(show?: boolean) {
+  if (!historyDrawer) return;
+  const isCurrentlyOpen = historyDrawer.style.display !== "none";
+  const shouldOpen = show !== undefined ? show : !isCurrentlyOpen;
+
+  if (shouldOpen) {
+    if (historySearchInput) historySearchInput.value = "";
+    renderHistoryList();
+    historyDrawer.style.display = "flex";
+    historySearchInput?.focus();
+  } else {
+    historyDrawer.style.display = "none";
+  }
+}
+
+// 绑定历史抽屉交互
+if (btnHistoryToggle) {
+  btnHistoryToggle.addEventListener("click", () => toggleHistoryDrawer());
+}
+if (btnCloseHistory) {
+  btnCloseHistory.addEventListener("click", () => toggleHistoryDrawer(false));
+}
+if (historySearchInput) {
+  historySearchInput.addEventListener("input", (e) => {
+    const val = (e.target as HTMLInputElement).value;
+    renderHistoryList(val);
+  });
+}
+if (btnExportMarkdown) {
+  btnExportMarkdown.addEventListener("click", async () => {
+    const md = HistoryStore.exportToMarkdown();
+    try {
+      await navigator.clipboard.writeText(md);
+      const originHtml = btnExportMarkdown.innerHTML;
+      btnExportMarkdown.innerHTML = "<span>✓ 已复制笔记</span>";
+      setTimeout(() => {
+        btnExportMarkdown.innerHTML = originHtml;
+      }, 2000);
+    } catch {
+      alert("复制到剪贴板失败，请检查应用权限。");
+    }
+  });
+}
+if (btnClearHistory) {
+  btnClearHistory.addEventListener("click", () => {
+    if (confirm("确定清空全部历史会话记录吗？")) {
+      HistoryStore.clear();
+      renderHistoryList();
+    }
+  });
+}
+
 // 窗口控制与快捷键
 btnCloseCard.addEventListener("click", async () => {
   if (isTauri()) {
@@ -412,7 +734,18 @@ btnSettingsToggle.addEventListener("click", async () => {
 });
 
 window.addEventListener("keydown", async (e) => {
+  if ((e.ctrlKey || e.metaKey) && (e.key === "h" || e.key === "H")) {
+    e.preventDefault();
+    toggleHistoryDrawer();
+    return;
+  }
+
   if (e.key === "Escape") {
+    if (historyDrawer && historyDrawer.style.display !== "none") {
+      e.preventDefault();
+      toggleHistoryDrawer(false);
+      return;
+    }
     if (isTauri()) {
       await invoke("hide_window");
     }

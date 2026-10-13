@@ -3,6 +3,7 @@ mod config;
 mod llm;
 mod platform;
 mod preferences;
+pub mod tools;
 
 use capture::{capture_selected_text, get_cursor_pos, SelectionResult};
 use config::load_config;

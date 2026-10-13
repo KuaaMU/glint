@@ -26,6 +26,11 @@
           </div>
         </div>
         <div class="handle-right">
+          <button id="btn-history-toggle" class="glass-icon-btn" title="会话历史 (Ctrl+H)">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+          </button>
           <button id="btn-snip-toggle" class="glass-icon-btn" title="截屏透视 (Alt + W)">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
               <circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/>
@@ -78,6 +83,35 @@
               <line x1="5" y1="12" x2="19" y2="12"></line>
               <polyline points="12 5 19 12 12 19"></polyline>
             </svg>
+          </button>
+        </div>
+      </div>
+
+      <!-- 会话历史漫游抽屉 (磨砂琉璃 · 侧滑/叠层面板) -->
+      <div id="history-drawer" class="history-drawer" style="display: none;">
+        <div class="history-drawer-header">
+          <div class="history-title-row">
+            <div class="history-title-badge">
+              <span class="history-icon">📜</span>
+              <span class="history-title">会话历史漫游</span>
+            </div>
+            <button id="btn-close-history" class="glass-icon-btn close-btn" title="收起 (Esc)">
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+            </button>
+          </div>
+          <div class="history-search-row">
+            <input id="history-search-input" type="text" class="history-search-input" placeholder="输入关键词或宿主过滤..." spellcheck="false" />
+          </div>
+        </div>
+        <div id="history-list" class="history-list">
+          <!-- 历史列表项 -->
+        </div>
+        <div class="history-drawer-footer">
+          <button id="btn-export-markdown" class="history-action-btn" title="导出为 Markdown 伴生笔记">
+            <span>📋 复制全部笔记</span>
+          </button>
+          <button id="btn-clear-history" class="history-action-btn text-danger" title="清空全部会话记录">
+            <span>🗑️ 清空历史</span>
           </button>
         </div>
       </div>

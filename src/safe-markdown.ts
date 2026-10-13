@@ -76,6 +76,38 @@ export function parseInlineTokens(escapedText: string): string {
  * - Bold text **[text]** -> <strong>...</strong>
  * - \n\n -> <br/><br/> and \n -> <br/>
  */
+import {
+  renderCompareWidget,
+  renderFlowWidget,
+  renderMetricsWidget,
+  renderCalloutWidget,
+} from "./generative-ui.ts";
+
+function renderWidgetOrCodeBlock(lang: string, lines: string[]): string {
+  const trimmedLang = lang.trim();
+  const rawContent = lines.join("\n");
+
+  if (trimmedLang.startsWith("widget:")) {
+    const wType = trimmedLang.slice("widget:".length).trim().toLowerCase();
+    switch (wType) {
+      case "compare":
+        return renderCompareWidget(rawContent);
+      case "flow":
+      case "timeline":
+        return renderFlowWidget(rawContent);
+      case "metrics":
+      case "keyvals":
+        return renderMetricsWidget(rawContent);
+      case "callout":
+        return renderCalloutWidget(rawContent);
+    }
+  }
+
+  const escapedCode = lines.map((l) => escapeHtml(l)).join("\n");
+  const langAttr = trimmedLang ? ` data-lang="${escapeHtml(trimmedLang)}"` : ` data-lang=""`;
+  return `<pre class="glint-code-block"><code${langAttr}>${escapedCode}</code></pre>`;
+}
+
 export function renderSafeMarkdown(markdown: string): string {
   if (!markdown) return "";
 
@@ -95,9 +127,7 @@ export function renderSafeMarkdown(markdown: string): string {
     if (trimmed.startsWith("```")) {
       if (inCodeBlock) {
         // Closing code block
-        const escapedCode = codeBlockLines.map((l) => escapeHtml(l)).join("\n");
-        const langAttr = codeBlockLang ? ` data-lang="${escapeHtml(codeBlockLang)}"` : ` data-lang=""`;
-        output.push(`<pre class="glint-code-block"><code${langAttr}>${escapedCode}</code></pre>`);
+        output.push(renderWidgetOrCodeBlock(codeBlockLang, codeBlockLines));
         inCodeBlock = false;
         codeBlockLang = "";
         codeBlockLines = [];
@@ -121,22 +151,25 @@ export function renderSafeMarkdown(markdown: string): string {
 
   // Gracefully close streaming code block if still open
   if (inCodeBlock) {
-    const escapedCode = codeBlockLines.map((l) => escapeHtml(l)).join("\n");
-    const langAttr = codeBlockLang ? ` data-lang="${escapeHtml(codeBlockLang)}"` : ` data-lang=""`;
-    output.push(`<pre class="glint-code-block"><code${langAttr}>${escapedCode}</code></pre>`);
+    output.push(renderWidgetOrCodeBlock(codeBlockLang, codeBlockLines));
   }
 
   // Assemble HTML with newline handling:
-  // Non-pre lines are connected with <br/> (empty lines naturally create <br/><br/>)
+  // Non-block lines are connected with <br/> (empty lines naturally create <br/><br/>)
   let html = "";
   for (let i = 0; i < output.length; i++) {
     const part = output[i];
-    const isPre = part.startsWith('<pre class="glint-code-block"');
-    const prevIsPre = i > 0 && output[i - 1].startsWith('<pre class="glint-code-block"');
+    const isBlock =
+      part.startsWith('<pre class="glint-code-block"') ||
+      part.includes('class="glint-widget');
+    const prevIsBlock =
+      i > 0 &&
+      (output[i - 1].startsWith('<pre class="glint-code-block"') ||
+        output[i - 1].includes('class="glint-widget'));
 
     if (i === 0) {
       html += part;
-    } else if (isPre || prevIsPre) {
+    } else if (isBlock || prevIsBlock) {
       html += part;
     } else {
       html += "<br/>" + part;

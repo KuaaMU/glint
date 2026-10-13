@@ -1,6 +1,7 @@
 import { invoke, Channel, isTauri } from "@tauri-apps/api/core";
 import { getCurrentWindow, LogicalSize } from "@tauri-apps/api/window";
 import { listen } from "@tauri-apps/api/event";
+import { renderSafeMarkdown, truncateSelection, emptyElement } from "./safe-markdown.ts";
 
 interface AppConfig {
   base_url?: string;
@@ -50,6 +51,21 @@ const hostBadge = document.getElementById("host-badge") as HTMLDivElement | null
 const hostTitle = document.getElementById("host-title") as HTMLSpanElement | null;
 const cardHandle = document.querySelector(".card-anchor-handle") as HTMLElement;
 const resizeGrip = document.getElementById("resize-grip") as HTMLElement;
+const truncationCapsule = document.getElementById("truncation-capsule") as HTMLDivElement | null;
+const truncationCapsuleText = document.getElementById("truncation-capsule-text") as HTMLSpanElement | null;
+
+// 更新选中文本超限截断胶囊提示
+function updateTruncationUI(truncated: boolean, originalLen: number) {
+  if (!truncationCapsule) return;
+  if (truncated) {
+    if (truncationCapsuleText) {
+      truncationCapsuleText.textContent = `已截取前 3,000 字符（原文共 ${originalLen.toLocaleString()} 字）· 保护上下文`;
+    }
+    truncationCapsule.style.display = "inline-flex";
+  } else {
+    truncationCapsule.style.display = "none";
+  }
+}
 
 // 会话状态管理
 let conversationMessages: ChatMessage[] = [];
@@ -126,7 +142,7 @@ async function executeExplain(
     explanationText.appendChild(aDiv);
     targetOutputEl = aDiv;
   } else {
-    explanationText.innerHTML = "";
+    emptyElement(explanationText);
   }
 
   onEvent.onmessage = (chunk: StreamChunk) => {
@@ -135,16 +151,17 @@ async function executeExplain(
 
     if (chunk.type === "Token" && chunk.data) {
       currentTurnText += chunk.data;
-      targetOutputEl.innerHTML = currentTurnText
-        .replace(/\n\n/g, "<br/><br/>")
-        .replace(/\n/g, "<br/>");
+      targetOutputEl.innerHTML = renderSafeMarkdown(currentTurnText);
       explanationText.scrollTop = explanationText.scrollHeight;
     } else if (chunk.type === "Done") {
       statusIndicator.style.display = "none";
       conversationMessages.push({ role: "assistant", content: currentTurnText });
     } else if (chunk.type === "Error") {
       statusIndicator.style.display = "none";
-      targetOutputEl.innerHTML += `<br/><span style="color:#EF4444;">${chunk.data || "请求出错"}</span>`;
+      const errNotice = document.createElement("div");
+      errNotice.className = "stream-error-notice";
+      errNotice.textContent = `⚠️ ${chunk.data || "请求出错"}`;
+      targetOutputEl.appendChild(errNotice);
     }
   };
 
@@ -220,7 +237,9 @@ async function simulateMockStream(
 function startNewQuery(text: string, windowTitle?: string | null) {
   activeSessionId++;
   updateHostBadge(windowTitle);
-  conversationMessages = [{ role: "user", content: text }];
+  const truncatedResult = truncateSelection(text, 3000);
+  updateTruncationUI(truncatedResult.truncated, truncatedResult.originalLen);
+  conversationMessages = [{ role: "user", content: truncatedResult.text }];
   executeExplain(conversationMessages, activeSessionId);
 }
 
@@ -231,6 +250,7 @@ function startNewMultimodalQuery(
   windowTitle?: string | null
 ) {
   activeSessionId++;
+  updateTruncationUI(false, 0);
   updateHostBadge(windowTitle, "屏幕透视");
   const defaultPrompt = prompt || "请分析所选屏幕区域的内容，一针见血透视核心本质与关键信息。";
   conversationMessages = [
@@ -243,15 +263,28 @@ function startNewMultimodalQuery(
     },
   ];
 
-  // 渲染截图缩略图横幅
-  explanationText.innerHTML = `
-    <div class="capture-preview-banner">
-      <img src="${imageDataUrl}" alt="截屏预览" />
-      <span class="preview-badge">✨ 视觉透视</span>
-    </div>
-    <div class="reply-turn"></div>
-  `;
-  const replyTurnEl = explanationText.querySelector(".reply-turn") as HTMLElement;
+  // 渲染截图缩略图横幅 (安全 DOM 构建)
+  emptyElement(explanationText);
+
+  const banner = document.createElement("div");
+  banner.className = "capture-preview-banner";
+
+  const img = document.createElement("img");
+  img.src = imageDataUrl;
+  img.alt = "截屏预览";
+
+  const badge = document.createElement("span");
+  badge.className = "preview-badge";
+  badge.textContent = "✨ 视觉透视";
+
+  banner.appendChild(img);
+  banner.appendChild(badge);
+
+  const replyTurnEl = document.createElement("div");
+  replyTurnEl.className = "reply-turn";
+
+  explanationText.appendChild(banner);
+  explanationText.appendChild(replyTurnEl);
 
   executeExplain(conversationMessages, activeSessionId, replyTurnEl);
   followupInput.focus();
@@ -353,7 +386,15 @@ btnCloseCard.addEventListener("click", async () => {
   if (isTauri()) {
     await invoke("hide_window");
   } else {
-    explanationText.innerHTML = "已收起卡片。按 <kbd>Alt + Q</kbd> 重新唤出。";
+    updateTruncationUI(false, 0);
+    emptyElement(explanationText);
+    const kbd = document.createElement("kbd");
+    kbd.textContent = "Alt + Q";
+    explanationText.append(
+      document.createTextNode("已收起卡片。按 "),
+      kbd,
+      document.createTextNode(" 重新唤出。")
+    );
   }
 });
 
@@ -464,16 +505,48 @@ if (isTauri()) {
     if (text) {
       startNewQuery(text, winTitle);
     } else {
+      updateTruncationUI(false, 0);
       updateHostBadge(winTitle);
       activeSessionId++;
       conversationMessages = [];
-      explanationText.innerHTML =
-        "💡 <b>未检测到选中文本</b><br/><br/>请先在任意窗口（浏览器、PDF、编辑器等）中用鼠标选中文本，然后再按下 <kbd>Alt + Q</kbd> 即可一键透视。您也可以按 <kbd>Alt + W</kbd> 框选屏幕进行视觉透视。";
+      emptyElement(explanationText);
+
+      const titleDiv = document.createElement("div");
+      titleDiv.style.marginBottom = "8px";
+      const bold = document.createElement("b");
+      bold.textContent = "未检测到选中文本";
+      titleDiv.append(document.createTextNode("💡 "), bold);
+
+      const descDiv = document.createElement("div");
+      const kbdQ = document.createElement("kbd");
+      kbdQ.textContent = "Alt + Q";
+      const kbdW = document.createElement("kbd");
+      kbdW.textContent = "Alt + W";
+      descDiv.append(
+        document.createTextNode("请先在任意窗口（浏览器、PDF、编辑器等）中用鼠标选中文本，然后再按下 "),
+        kbdQ,
+        document.createTextNode(" 即可一键透视。您也可以按 "),
+        kbdW,
+        document.createTextNode(" 框选屏幕进行视觉透视。")
+      );
+
+      explanationText.append(titleDiv, descDiv);
       statusIndicator.style.display = "none";
       followupInput.focus();
     }
   });
 } else {
-  explanationText.innerHTML =
-    "请在任意软件中选中文本后按下 <kbd>Alt + Q</kbd>，或按下 <kbd>Alt + W</kbd> 进行截屏透视。";
+  updateTruncationUI(false, 0);
+  emptyElement(explanationText);
+  const kbdQ = document.createElement("kbd");
+  kbdQ.textContent = "Alt + Q";
+  const kbdW = document.createElement("kbd");
+  kbdW.textContent = "Alt + W";
+  explanationText.append(
+    document.createTextNode("请在任意软件中选中文本后按下 "),
+    kbdQ,
+    document.createTextNode("，或按下 "),
+    kbdW,
+    document.createTextNode(" 进行截屏透视。")
+  );
 }

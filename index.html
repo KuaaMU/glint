@@ -49,6 +49,11 @@
 
       <!-- 核心解释文本展示区 (流式输出) -->
       <div id="content-area" class="content-area">
+        <!-- 选中文本超限截断防护胶囊 -->
+        <div id="truncation-capsule" class="truncation-capsule" style="display: none;">
+          <span class="capsule-icon">✂️</span>
+          <span id="truncation-capsule-text">已截取前 3,000 字符 · 保护上下文</span>
+        </div>
         <div id="status-indicator" class="status-indicator" style="display: none;">
           <span class="spinner-dot"></span>
           <span>正在透视本质...</span>

@@ -15,6 +15,7 @@
       {
         "title": "Glint",
         "label": "hud",
+        "url": "index.html",
         "width": 440,
         "height": 380,
         "decorations": false,

@@ -1,6 +1,7 @@
 import { invoke, Channel, isTauri } from "@tauri-apps/api/core";
 import { getCurrentWindow, LogicalSize } from "@tauri-apps/api/window";
 import { listen } from "@tauri-apps/api/event";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import { renderSafeMarkdown, truncateSelection, emptyElement } from "./safe-markdown.ts";
 import {
   HistoryStore,
@@ -11,16 +12,18 @@ import {
 } from "./history-store.ts";
 import { StreamingRenderPipeline } from "./streaming-pipeline.ts";
 
+export type GlintTheme = "dark" | "aurora" | "amethyst" | "epaper";
+
 interface AppConfig {
   base_url?: string;
   api_key?: string;
   model?: string;
-  theme?: string;
+  theme?: GlintTheme | string;
   always_on_top?: boolean;
 }
 
-function applyTheme(themeName?: string) {
-  const chosen = themeName || localStorage.getItem("glint_theme") || "dark";
+export function applyTheme(themeName?: string) {
+  const chosen = (themeName || localStorage.getItem("glint_theme") || "dark") as GlintTheme;
   document.body.dataset.theme = chosen;
   document.documentElement.dataset.theme = chosen;
 }
@@ -456,50 +459,83 @@ if (btnSnipToggle) {
   });
 }
 
-// 右下角微缩放把手交互
+// 右下角原生缩放把手交互（OS 操作系统原生拖拽托管，杜绝 IPC 逐帧阻塞）
 if (resizeGrip) {
   resizeGrip.addEventListener("mousedown", async (e) => {
     e.preventDefault();
     e.stopPropagation();
 
-    if (!isTauri()) return;
+    if (isTauri()) {
+      try {
+        await getCurrentWindow().startResizeDragging("SouthEast");
+        return;
+      } catch (err) {
+        console.warn("原生窗口缩放托管失败，回退为 RAF 节流方案:", err);
+      }
+    }
 
-    try {
-      const currentWin = getCurrentWindow();
-      const scaleFactor = await currentWin.scaleFactor();
-      const startX = e.screenX;
-      const startY = e.screenY;
-      const physSize = await currentWin.innerSize();
-      const startLogicalW = physSize.width / scaleFactor;
-      const startLogicalH = physSize.height / scaleFactor;
+    // 非 Tauri / 纯浏览器测试环境：requestAnimationFrame 严格节流降级
+    let rafId: number | null = null;
+    const startX = e.screenX;
+    const startY = e.screenY;
+    const startW = window.innerWidth;
+    const startH = window.innerHeight;
 
-      const onMouseMove = async (moveEvent: MouseEvent) => {
+    const onMouseMove = (moveEvent: MouseEvent) => {
+      if (rafId !== null) return;
+      rafId = requestAnimationFrame(() => {
+        rafId = null;
         const deltaX = moveEvent.screenX - startX;
         const deltaY = moveEvent.screenY - startY;
-        const newWidth = Math.max(320, Math.min(800, startLogicalW + deltaX));
-        const newHeight = Math.max(240, Math.min(900, startLogicalH + deltaY));
-        await currentWin.setSize(new LogicalSize(Math.round(newWidth), Math.round(newHeight)));
-      };
+        const newW = Math.max(320, Math.min(800, startW + deltaX));
+        const newH = Math.max(240, Math.min(900, startH + deltaY));
+        window.resizeTo?.(newW, newH);
+      });
+    };
 
-      const onMouseUp = async () => {
-        window.removeEventListener("mousemove", onMouseMove);
-        window.removeEventListener("mouseup", onMouseUp);
-        try {
-          const phys = await currentWin.innerSize();
-          const logW = Math.round(phys.width / scaleFactor);
-          const logH = Math.round(phys.height / scaleFactor);
-          localStorage.setItem("glint_card_width", logW.toString());
-          localStorage.setItem("glint_card_height", logH.toString());
-        } catch (_) {}
-      };
+    const onMouseUp = () => {
+      if (rafId !== null) cancelAnimationFrame(rafId);
+      window.removeEventListener("mousemove", onMouseMove);
+      window.removeEventListener("mouseup", onMouseUp);
+    };
 
-      window.addEventListener("mousemove", onMouseMove);
-      window.addEventListener("mouseup", onMouseUp);
-    } catch (err) {
-      console.error("调整大小异常:", err);
-    }
+    window.addEventListener("mousemove", onMouseMove);
+    window.addEventListener("mouseup", onMouseUp);
   });
 }
+
+// 监听视窗尺寸变化并防抖持久化（解耦鼠标移动与储存 IO）
+let resizePersistTimer: number | null = null;
+window.addEventListener("resize", () => {
+  if (resizePersistTimer) clearTimeout(resizePersistTimer);
+  resizePersistTimer = window.setTimeout(() => {
+    try {
+      const w = Math.round(window.innerWidth);
+      const h = Math.round(window.innerHeight);
+      if (w >= 320 && w <= 800 && h >= 240 && h <= 900) {
+        localStorage.setItem("glint_card_width", w.toString());
+        localStorage.setItem("glint_card_height", h.toString());
+      }
+    } catch (_) {}
+  }, 250);
+});
+
+// 全局外部安全链接拦截器（调用 tauri-plugin-opener 在系统默认浏览器打开）
+document.addEventListener("click", async (e) => {
+  const target = (e.target as HTMLElement)?.closest?.("a.glint-link, a[target='_blank']");
+  if (target && target instanceof HTMLAnchorElement && target.href) {
+    e.preventDefault();
+    if (isTauri()) {
+      try {
+        await openUrl(target.href);
+      } catch (err) {
+        console.error("打开外部链接失败:", err);
+      }
+    } else {
+      window.open(target.href, "_blank");
+    }
+  }
+});
 
 // 键盘与输入监听
 followupInput.addEventListener("keydown", (e) => {

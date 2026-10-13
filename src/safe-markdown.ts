@@ -257,6 +257,15 @@ export function renderSafeMarkdown(markdown: string): string {
 
   // 拼接 HTML 块
   let html = "";
+  const isBlockElement = (block: string): boolean =>
+    block.startsWith('<pre class="glint-code-block"') ||
+    block.startsWith('<ul class="') ||
+    block.startsWith('<ol class="') ||
+    block.startsWith('<h') ||
+    block.startsWith('<blockquote') ||
+    block.startsWith('<hr') ||
+    block.includes('class="glint-widget');
+
   for (let i = 0; i < processedBlocks.length; i++) {
     const part = processedBlocks[i];
     if (part === "") {
@@ -264,28 +273,10 @@ export function renderSafeMarkdown(markdown: string): string {
       continue;
     }
 
-    const isBlock =
-      part.startsWith('<pre class="glint-code-block"') ||
-      part.startsWith('<ul class="') ||
-      part.startsWith('<ol class="') ||
-      part.startsWith('<h') ||
-      part.startsWith('<blockquote') ||
-      part.startsWith('<hr') ||
-      part.includes('class="glint-widget');
+    const isBlock = isBlockElement(part);
+    const prevIsBlock = i > 0 && isBlockElement(processedBlocks[i - 1]);
 
-    const prevIsBlock =
-      i > 0 &&
-      (processedBlocks[i - 1].startsWith('<pre class="glint-code-block"') ||
-        processedBlocks[i - 1].startsWith('<ul class="') ||
-        processedBlocks[i - 1].startsWith('<ol class="') ||
-        processedBlocks[i - 1].startsWith('<h') ||
-        processedBlocks[i - 1].startsWith('<blockquote') ||
-        processedBlocks[i - 1].startsWith('<hr') ||
-        processedBlocks[i - 1].includes('class="glint-widget'));
-
-    if (i === 0) {
-      html += part;
-    } else if (isBlock || prevIsBlock) {
+    if (i === 0 || isBlock || prevIsBlock) {
       html += part;
     } else {
       html += "<br/>" + part;

@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use std::time::Duration;
 use tauri::ipc::Channel;
 
-use crate::tools::{execute_tool, ToolCallPayload};
+use crate::tools::{execute_tool, get_available_tools_schema, ToolCallPayload};
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 #[serde(tag = "type", content = "data")]
@@ -152,12 +152,19 @@ pub fn build_api_payload(req: &QueryRequest) -> serde_json::Value {
         }));
     }
 
-    serde_json::json!({
+    let mut payload = serde_json::json!({
         "model": req.model.as_deref().unwrap_or("deepseek-chat"),
         "messages": api_messages,
         "stream": true,
         "temperature": 0.3
-    })
+    });
+
+    let tools = get_available_tools_schema();
+    if !tools.is_empty() {
+        payload["tools"] = serde_json::Value::Array(tools);
+    }
+
+    payload
 }
 
 pub async fn stream_explanation(req: QueryRequest, channel: Channel<StreamChunk>) {
@@ -229,8 +236,37 @@ pub async fn stream_explanation(req: QueryRequest, channel: Channel<StreamChunk>
                             return;
                         }
                         if let Ok(v) = serde_json::from_str::<serde_json::Value>(data) {
-                            if let Some(delta) = v["choices"][0]["delta"]["content"].as_str() {
-                                let _ = channel.send(StreamChunk::Token(delta.to_string()));
+                            if let Some(choice) = v["choices"].as_array().and_then(|c| c.first()) {
+                                let delta = &choice["delta"];
+
+                                // 1. 解析实时 Tool Call
+                                if let Some(tool_calls) = delta["tool_calls"].as_array() {
+                                    for tc in tool_calls {
+                                        let func = &tc["function"];
+                                        if let Some(name) = func["name"].as_str() {
+                                            let args = func["arguments"].as_str().unwrap_or("{}");
+                                            let _ = channel.send(StreamChunk::ToolCall(ToolCallPayload {
+                                                name: name.to_string(),
+                                                args: args.to_string(),
+                                                status: "calling".to_string(),
+                                                result: None,
+                                            }));
+
+                                            let res = execute_tool(name, args, req.window_title.as_deref());
+                                            let _ = channel.send(StreamChunk::ToolCall(ToolCallPayload {
+                                                name: name.to_string(),
+                                                args: args.to_string(),
+                                                status: "done".to_string(),
+                                                result: Some(res),
+                                            }));
+                                        }
+                                    }
+                                }
+
+                                // 2. 解析文本 Token
+                                if let Some(content) = delta["content"].as_str() {
+                                    let _ = channel.send(StreamChunk::Token(content.to_string()));
+                                }
                             }
                         }
                     }

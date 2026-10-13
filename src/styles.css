@@ -771,10 +771,10 @@ html, body {
 }
 
 /* ==========================================================================
-   会话历史漫游抽屉 (History Drawer)
+   会话历史漫游透镜板 (History Deck) · 卡片内置透视 Deck
    ========================================================================== */
 
-.history-drawer {
+.history-deck {
   position: absolute;
   inset: 0;
   z-index: 60;
@@ -783,17 +783,17 @@ html, body {
   border-radius: 12px;
   display: flex;
   flex-direction: column;
-  animation: drawerSlideIn 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  animation: deckSlideIn 0.2s cubic-bezier(0.16, 1, 0.3, 1);
   overflow: hidden;
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
 }
 
-@keyframes drawerSlideIn {
+@keyframes deckSlideIn {
   from { opacity: 0; transform: scale(0.97); }
   to { opacity: 1; transform: scale(1); }
 }
 
-.history-drawer-header {
+.history-deck-header {
   padding: 12px 14px 10px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
   flex-shrink: 0;
@@ -947,7 +947,7 @@ html, body {
   color: #f87171;
 }
 
-.history-drawer-footer {
+.history-deck-footer {
   padding: 8px 12px;
   border-top: 1px solid rgba(255, 255, 255, 0.08);
   display: flex;

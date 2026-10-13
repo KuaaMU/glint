@@ -127,41 +127,28 @@ fn calc_sandbox_internal(expr: &str) -> String {
         }
     }
 
-    // 简单位运算模式匹配
-    if clean.contains(">>") {
-        let parts: Vec<&str> = clean.split(">>").collect();
-        if parts.len() == 2 {
-            if let (Ok(a), Ok(b)) = (parse_num(parts[0]), parse_num(parts[1])) {
-                let res = a >> b;
-                return format!("{} >> {} = {} (0x{:X})", a, b, res, res);
-            }
-        }
-    }
-    if clean.contains("<<") {
-        let parts: Vec<&str> = clean.split("<<").collect();
-        if parts.len() == 2 {
-            if let (Ok(a), Ok(b)) = (parse_num(parts[0]), parse_num(parts[1])) {
-                let res = a << b;
-                return format!("{} << {} = {} (0x{:X})", a, b, res, res);
-            }
-        }
-    }
-    if clean.contains('*') {
-        let parts: Vec<&str> = clean.split('*').collect();
-        if parts.len() == 2 {
-            if let (Ok(a), Ok(b)) = (parse_num(parts[0]), parse_num(parts[1])) {
-                let res = a * b;
-                return format!("{} * {} = {}", a, b, res);
-            }
-        }
-    }
-    if clean.contains('/') {
-        let parts: Vec<&str> = clean.split('/').collect();
-        if parts.len() == 2 {
-            if let (Ok(a), Ok(b)) = (parse_num(parts[0]), parse_num(parts[1])) {
-                if b != 0 {
-                    let res = a / b;
-                    return format!("{} / {} = {}", a, b, res);
+    // 结构化二元运算执行器
+    let ops: [(&str, fn(u64, u64) -> u64, bool); 4] = [
+        (">>", |a, b| a >> b, true),
+        ("<<", |a, b| a << b, true),
+        ("*", |a, b| a * b, false),
+        ("/", |a, b| if b == 0 { 0 } else { a / b }, false),
+    ];
+
+    for (op, func, is_shift) in ops {
+        if clean.contains(op) {
+            let parts: Vec<&str> = clean.split(op).collect();
+            if parts.len() == 2 {
+                if let (Ok(a), Ok(b)) = (parse_num(parts[0]), parse_num(parts[1])) {
+                    if op == "/" && b == 0 {
+                        return "除零错误 (Division by zero)".to_string();
+                    }
+                    let res = func(a, b);
+                    return if is_shift {
+                        format!("{} {} {} = {} (0x{:X})", a, op, b, res, res)
+                    } else {
+                        format!("{} {} {} = {}", a, op, b, res)
+                    };
                 }
             }
         }

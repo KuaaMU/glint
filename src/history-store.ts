@@ -16,6 +16,13 @@ export interface ChatMessage {
   content: MessageContent;
 }
 
+export interface ToolCallPayload {
+  name: string;
+  args: string;
+  status: string;
+  result?: string | null;
+}
+
 export interface GlintSessionRecord {
   id: string;
   createdAt: number;

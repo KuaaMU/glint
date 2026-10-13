@@ -2,13 +2,14 @@ import { invoke, Channel, isTauri } from "@tauri-apps/api/core";
 import { getCurrentWindow, LogicalSize } from "@tauri-apps/api/window";
 import { listen } from "@tauri-apps/api/event";
 import { renderSafeMarkdown, truncateSelection, emptyElement } from "./safe-markdown.ts";
-import { createToolCallElement } from "./generative-ui.ts";
 import {
   HistoryStore,
   type GlintSessionRecord,
   type ChatMessage,
   type MessageContent,
+  type ToolCallPayload,
 } from "./history-store.ts";
+import { StreamingRenderPipeline } from "./streaming-pipeline.ts";
 
 interface AppConfig {
   base_url?: string;
@@ -20,13 +21,6 @@ interface AppConfig {
 interface GlintTriggerPayload {
   text?: string;
   window_title?: string | null;
-}
-
-interface ToolCallPayload {
-  name: string;
-  args: string;
-  status: string;
-  result?: string | null;
 }
 
 interface StreamChunk {
@@ -51,7 +45,7 @@ const btnCloseCard = document.getElementById("btn-close-card") as HTMLButtonElem
 const btnSettingsToggle = document.getElementById("btn-settings-toggle") as HTMLButtonElement;
 const btnSnipToggle = document.getElementById("btn-snip-toggle") as HTMLButtonElement | null;
 const btnHistoryToggle = document.getElementById("btn-history-toggle") as HTMLButtonElement | null;
-const historyDrawer = document.getElementById("history-drawer") as HTMLDivElement | null;
+const historyDeck = document.getElementById("history-deck") as HTMLDivElement | null;
 const btnCloseHistory = document.getElementById("btn-close-history") as HTMLButtonElement | null;
 const historySearchInput = document.getElementById("history-search-input") as HTMLInputElement | null;
 const historyList = document.getElementById("history-list") as HTMLDivElement | null;
@@ -138,7 +132,6 @@ async function executeExplain(
   statusIndicator.style.display = "inline-flex";
 
   const onEvent = new Channel<StreamChunk>();
-  let currentTurnText = "";
 
   // 决定当前轮次输出承载容器
   let targetOutputEl: HTMLElement = explanationText;
@@ -160,48 +153,29 @@ async function executeExplain(
     emptyElement(explanationText);
   }
 
-  // 工具调用胶囊映射 (保证同一个工具调用状态就地更新)
-  const toolElementsMap = new Map<string, HTMLElement>();
+  // 创建并启动深模块流式渲染管线
+  const pipeline = new StreamingRenderPipeline(targetOutputEl);
+  pipeline.beginTurn({ targetOverride: targetOutputEl });
 
   onEvent.onmessage = (chunk: StreamChunk) => {
     // 丢弃已经过期会话的消息
     if (sessionId !== activeSessionId) return;
 
     if (chunk.type === "Token" && typeof chunk.data === "string") {
-      currentTurnText += chunk.data;
-      targetOutputEl.innerHTML = renderSafeMarkdown(currentTurnText);
-      // 保持已挂载的工具调用胶囊附着在顶部
-      for (const toolEl of toolElementsMap.values()) {
-        if (!targetOutputEl.contains(toolEl)) {
-          targetOutputEl.insertBefore(toolEl, targetOutputEl.firstChild);
-        }
-      }
-      explanationText.scrollTop = explanationText.scrollHeight;
+      pipeline.appendToken(chunk.data);
     } else if (chunk.type === "ToolCall" && chunk.data && typeof chunk.data === "object") {
-      const toolPayload = chunk.data as ToolCallPayload;
-      const toolKey = `${toolPayload.name}_${toolPayload.args}`;
-      const existingEl = toolElementsMap.get(toolKey);
-      const newEl = createToolCallElement(toolPayload);
-
-      if (existingEl && targetOutputEl.contains(existingEl)) {
-        existingEl.replaceWith(newEl);
-      } else {
-        targetOutputEl.insertBefore(newEl, targetOutputEl.firstChild);
-      }
-      toolElementsMap.set(toolKey, newEl);
-      explanationText.scrollTop = explanationText.scrollHeight;
+      pipeline.mountToolCall(chunk.data as ToolCallPayload);
     } else if (chunk.type === "Done") {
       statusIndicator.style.display = "none";
-      conversationMessages.push({ role: "assistant", content: currentTurnText });
+      const fullTurnText = pipeline.getCurrentText();
+      conversationMessages.push({ role: "assistant", content: fullTurnText });
 
       // 持久化保存至本地历史存储
-      saveCurrentSessionToHistory(currentTurnText);
+      saveCurrentSessionToHistory(fullTurnText);
     } else if (chunk.type === "Error") {
       statusIndicator.style.display = "none";
-      const errNotice = document.createElement("div");
-      errNotice.className = "stream-error-notice";
-      errNotice.textContent = `⚠️ ${typeof chunk.data === "string" ? chunk.data : "请求出错"}`;
-      targetOutputEl.appendChild(errNotice);
+      const errNotice = typeof chunk.data === "string" ? chunk.data : "请求出错";
+      pipeline.reportError(errNotice);
     }
   };
 
@@ -646,32 +620,32 @@ function restoreSession(session: GlintSessionRecord) {
     }
   }
 
-  toggleHistoryDrawer(false);
+  toggleHistoryDeck(false);
   followupInput.focus();
 }
 
-// 打开或关闭历史抽屉
-function toggleHistoryDrawer(show?: boolean) {
-  if (!historyDrawer) return;
-  const isCurrentlyOpen = historyDrawer.style.display !== "none";
+// 打开或关闭历史漫游透镜板
+function toggleHistoryDeck(show?: boolean) {
+  if (!historyDeck) return;
+  const isCurrentlyOpen = historyDeck.style.display !== "none";
   const shouldOpen = show !== undefined ? show : !isCurrentlyOpen;
 
   if (shouldOpen) {
     if (historySearchInput) historySearchInput.value = "";
     renderHistoryList();
-    historyDrawer.style.display = "flex";
+    historyDeck.style.display = "flex";
     historySearchInput?.focus();
   } else {
-    historyDrawer.style.display = "none";
+    historyDeck.style.display = "none";
   }
 }
 
-// 绑定历史抽屉交互
+// 绑定历史透镜板交互
 if (btnHistoryToggle) {
-  btnHistoryToggle.addEventListener("click", () => toggleHistoryDrawer());
+  btnHistoryToggle.addEventListener("click", () => toggleHistoryDeck());
 }
 if (btnCloseHistory) {
-  btnCloseHistory.addEventListener("click", () => toggleHistoryDrawer(false));
+  btnCloseHistory.addEventListener("click", () => toggleHistoryDeck(false));
 }
 if (historySearchInput) {
   historySearchInput.addEventListener("input", (e) => {
@@ -684,10 +658,10 @@ if (btnExportMarkdown) {
     const md = HistoryStore.exportToMarkdown();
     try {
       await navigator.clipboard.writeText(md);
-      const originHtml = btnExportMarkdown.innerHTML;
-      btnExportMarkdown.innerHTML = "<span>✓ 已复制笔记</span>";
+      const originText = btnExportMarkdown.textContent || "导出 Markdown 笔记";
+      btnExportMarkdown.textContent = "✓ 已复制笔记";
       setTimeout(() => {
-        btnExportMarkdown.innerHTML = originHtml;
+        btnExportMarkdown.textContent = originText;
       }, 2000);
     } catch {
       alert("复制到剪贴板失败，请检查应用权限。");
@@ -736,14 +710,14 @@ btnSettingsToggle.addEventListener("click", async () => {
 window.addEventListener("keydown", async (e) => {
   if ((e.ctrlKey || e.metaKey) && (e.key === "h" || e.key === "H")) {
     e.preventDefault();
-    toggleHistoryDrawer();
+    toggleHistoryDeck();
     return;
   }
 
   if (e.key === "Escape") {
-    if (historyDrawer && historyDrawer.style.display !== "none") {
+    if (historyDeck && historyDeck.style.display !== "none") {
       e.preventDefault();
-      toggleHistoryDrawer(false);
+      toggleHistoryDeck(false);
       return;
     }
     if (isTauri()) {

@@ -39,25 +39,50 @@ impl Default for AppConfig {
 /// The application identifier used by Tauri, the portal, and the config dir.
 pub const APP_ID: &str = "com.glint.desktop";
 
-/// XDG config path shared by the CLI, the Tauri shell, and tests.
+/// Config path shared by the CLI, the Tauri shell, and tests.
 ///
-/// Tauri's `app_config_dir()` resolves to `$XDG_CONFIG_HOME/<identifier>`, so
-/// the headless tools must use the same directory or they silently read an
-/// empty config while the GUI has a working key.
+/// Tauri's `app_config_dir()` resolves to `$XDG_CONFIG_HOME/<identifier>` on
+/// Linux, `%APPDATA%\<identifier>` on Windows and
+/// `~/Library/Application Support/<identifier>` on macOS. The headless tools
+/// must resolve the same directory, or they silently read an empty config
+/// while the GUI has a working key.
 pub fn default_config_path() -> PathBuf {
-    if let Ok(xdg) = std::env::var("XDG_CONFIG_HOME")
-        && !xdg.trim().is_empty()
-    {
-        return PathBuf::from(xdg).join(APP_ID).join("config.json");
+    let non_empty = |key: &str| {
+        std::env::var(key)
+            .ok()
+            .filter(|value| !value.trim().is_empty())
+            .map(PathBuf::from)
+    };
+
+    // Linux: the XDG override wins over HOME.
+    if let Some(xdg) = non_empty("XDG_CONFIG_HOME") {
+        return xdg.join(APP_ID).join("config.json");
     }
-    if let Ok(home) = std::env::var("HOME")
-        && !home.trim().is_empty()
+
+    // Windows has no HOME; the roaming app-data directory is what Tauri uses,
+    // and APPDATA points at it.
+    if cfg!(target_os = "windows")
+        && let Some(appdata) = non_empty("APPDATA")
     {
-        return PathBuf::from(home)
-            .join(".config")
+        return appdata.join(APP_ID).join("config.json");
+    }
+
+    if cfg!(target_os = "macos")
+        && let Some(home) = non_empty("HOME")
+    {
+        return home
+            .join("Library")
+            .join("Application Support")
             .join(APP_ID)
             .join("config.json");
     }
+
+    if let Some(home) = non_empty("HOME") {
+        return home.join(".config").join(APP_ID).join("config.json");
+    }
+
+    // Last resort: a predictable file in the working directory. Callers that
+    // need a stable path should pass one explicitly.
     PathBuf::from("glint_config.json")
 }
 

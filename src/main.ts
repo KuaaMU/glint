@@ -167,6 +167,7 @@ async function executeExplain(
 
   // 创建并启动深模块流式渲染管线
   const pipeline = new StreamingRenderPipeline(targetOutputEl);
+  activePipeline = pipeline;
   pipeline.beginTurn({ targetOverride: targetOutputEl });
 
   onEvent.onmessage = (chunk: StreamChunk) => {
@@ -725,6 +726,52 @@ if (btnClearHistory) {
     }
   });
 }
+
+// --- Code block copy (event delegation) -----------------------------------
+let activePipeline: StreamingRenderPipeline | null = null;
+
+// The streaming pipeline replaces `innerHTML` on every token, so per-block
+// listeners would be destroyed mid-stream. A single delegated handler on the
+// answer container survives re-renders.
+explanationText.addEventListener("click", async (event) => {
+  const target = event.target as HTMLElement | null;
+  const button = target?.closest<HTMLButtonElement>(".glint-copy-btn");
+  if (!button) return;
+
+  const encoded = button.dataset.code;
+  if (!encoded) return;
+
+  let code = "";
+  try {
+    code = decodeURIComponent(encoded);
+  } catch {
+    return;
+  }
+
+  try {
+    await navigator.clipboard.writeText(code);
+  } catch {
+    // Clipboard API can be unavailable in an unfocused webview; fall back to
+    // a temporary textarea so copy still works.
+    const area = document.createElement("textarea");
+    area.value = code;
+    area.style.position = "fixed";
+    area.style.opacity = "0";
+    document.body.appendChild(area);
+    area.select();
+    document.execCommand("copy");
+    area.remove();
+  }
+
+  activePipeline?.markCopied(encoded);
+  const previous = button.textContent;
+  button.textContent = "已复制";
+  button.classList.add("copied");
+  window.setTimeout(() => {
+    button.textContent = previous || "复制";
+    button.classList.remove("copied");
+  }, 1400);
+});
 
 // --- Pin (固定) -----------------------------------------------------------
 // A pinned card stays on screen and ignores the automatic hide that follows a

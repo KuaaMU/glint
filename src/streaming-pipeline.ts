@@ -17,6 +17,13 @@ export class StreamingRenderPipeline {
   private currentTurnOutputEl: HTMLElement | null = null;
   private currentTurnText = "";
   private toolElementsMap = new Map<string, HTMLElement>();
+  /// `data-code` of the block whose "已复制" confirmation should survive a
+  /// re-render; cleared once that block scrolls out of the DOM.
+  private lastCopiedCode: string | null = null;
+
+  public markCopied(encodedCode: string): void {
+    this.lastCopiedCode = encodedCode;
+  }
 
   constructor(container: HTMLElement) {
     this.container = container;
@@ -71,6 +78,21 @@ export class StreamingRenderPipeline {
     for (const toolEl of this.toolElementsMap.values()) {
       if (!this.currentTurnOutputEl.contains(toolEl)) {
         this.currentTurnOutputEl.insertBefore(toolEl, this.currentTurnOutputEl.firstChild);
+      }
+    }
+
+    // Streaming replaces the markup on every token, which would leave an
+    // already-shown "已复制" chip reset mid-read. Preserve the confirmation
+    // state for the block whose text has not changed since it was copied.
+    if (this.lastCopiedCode !== null) {
+      const escaped = this.lastCopiedCode.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+      const selector = `.glint-copy-btn[data-code="${escaped}"]`;
+      const restored = this.currentTurnOutputEl.querySelector<HTMLButtonElement>(selector);
+      if (restored) {
+        restored.textContent = "已复制";
+        restored.classList.add("copied");
+      } else {
+        this.lastCopiedCode = null;
       }
     }
 

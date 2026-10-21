@@ -51,7 +51,10 @@ const ALLOWED_TAGS = new Set([
   "h4", "/h4",
   "blockquote", "/blockquote",
   "hr", "/hr", "hr/",
-  "br", "br/"
+  "br", "br/",
+  // Code-block copy affordance: the shell wraps the <pre> and holds a button.
+  "div", "/div",
+  "button", "/button"
 ]);
 
 /**
@@ -250,10 +253,15 @@ runChallengeTest("Streaming unclosed code block with HTML payloads", () => {
     rendered.includes("&lt;img src=x onerror=alert(1)&gt;"),
     `Payload inside unclosed code block must be escaped: ${rendered}`
   );
+  // The copy shell wraps the <pre>, so assert the code block itself is
+  // balanced rather than that it is the last thing in the string.
   assert(
-    rendered.endsWith("</code></pre>"),
+    rendered.includes("</code></pre>"),
     `Unclosed code block must terminate with closing tags: ${rendered}`
   );
+  const opens = (rendered.match(/<pre\b/g) ?? []).length;
+  const closes = (rendered.match(/<\/pre>/g) ?? []).length;
+  assert(opens === closes, `Unbalanced <pre> tags: ${opens} open, ${closes} close`);
 });
 
 runChallengeTest("Fenced code blocks with 10,000 lines", () => {

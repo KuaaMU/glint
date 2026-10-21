@@ -97,6 +97,24 @@ pub fn position_hud_window(
         Ok(()) => {}
         Err(err) => eprintln!("[Glint] set_position failed (Wayland toplevel?): {err}"),
     }
+
+    // Verify the compositor honoured the move. Under a native Wayland toplevel
+    // this is silently ignored; the card would then open wherever the
+    // compositor likes (usually centre), which is exactly what we must avoid.
+    // Only meaningful once mapped; callers invoke this after `show()`.
+    if window.is_visible().unwrap_or(false) {
+        if let Ok(actual) = window.outer_position() {
+            let dx = (actual.x - target.x).abs();
+            let dy = (actual.y - target.y).abs();
+            if dx > 4 || dy > 4 {
+                eprintln!(
+                    "[Glint] placement not honoured: wanted ({}, {}), got ({}, {}); \
+                     run with GDK_BACKEND=x11 for cursor-adjacent placement",
+                    target.x, target.y, actual.x, actual.y
+                );
+            }
+        }
+    }
 }
 
 /// Current outer size in physical pixels, defaulting to the configured card.
@@ -153,6 +171,9 @@ fn hud_is_pinned() -> bool {
 }
 
 /// Resize and place the card, keeping a pinned card's user-set size.
+///
+/// The window must be mapped before a position can be read back, so this runs
+/// after `show()`.
 fn prepare_hud(window: &WebviewWindow, cursor_x: i32, cursor_y: i32) {
     if !hud_is_pinned() {
         if let Err(err) = window.set_size(LogicalSize::new(440.0, 380.0)) {

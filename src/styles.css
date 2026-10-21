@@ -384,12 +384,19 @@ html, body {
 }
 
 /* 现代化流光排版：代码块、行内代码与粗体 */
+.glint-code-shell {
+  position: relative;
+  margin: 8px 0;
+  max-width: 100%;
+  min-width: 0;
+}
+
 .glint-code-block {
   background: rgba(0, 0, 0, 0.45);
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 6px;
   padding: 10px 12px;
-  margin: 8px 0;
+  margin: 0;
   overflow-x: auto;
   font-family: var(--font-mono);
   font-size: 12px;
@@ -397,6 +404,45 @@ html, body {
   color: #e2e8f0;
   white-space: pre-wrap;
   word-break: break-all;
+}
+
+/* Copy affordance: appears on hover/focus, always reachable by keyboard. */
+.glint-copy-btn {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  padding: 2px 8px;
+  font-size: 10.5px;
+  font-family: var(--font-family);
+  color: var(--text-muted);
+  background: rgba(20, 24, 33, 0.9);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 5px;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.14s ease, color 0.14s ease, border-color 0.14s ease;
+}
+
+.glint-code-shell:hover .glint-copy-btn,
+.glint-copy-btn:focus-visible {
+  opacity: 1;
+}
+
+.glint-copy-btn:hover {
+  color: var(--accent-cyan);
+  border-color: rgba(56, 189, 248, 0.5);
+}
+
+.glint-copy-btn.copied {
+  opacity: 1;
+  color: #34d399;
+  border-color: rgba(52, 211, 153, 0.5);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .glint-copy-btn {
+    transition: none;
+  }
 }
 
 .glint-code-block code {

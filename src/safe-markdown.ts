@@ -170,7 +170,15 @@ function renderWidgetOrCodeBlock(lang: string, lines: string[]): string {
 
   const escapedCode = lines.map((l) => escapeHtml(l)).join("\n");
   const langAttr = trimmedLang ? ` data-lang="${escapeHtml(trimmedLang)}"` : ` data-lang=""`;
-  return `<pre class="glint-code-block"><code${langAttr}>${escapedCode}</code></pre>`;
+  // `data-code` carries the exact text so the copy button never has to read
+  // back through the DOM (which would re-decode entities and lose newlines).
+  //
+  // `encodeURIComponent` leaves `'` unescaped, which would then be entity-
+  // encoded by escapeHtml and come back as the literal string "&#39;" when
+  // read from `dataset`. Escaping it here keeps the attribute to
+  // percent-escapes and alphanumerics, so no HTML escaping is needed at all.
+  const encodedCode = encodeURIComponent(rawContent).replace(/'/g, "%27");
+  return `<div class="glint-code-shell"><pre class="glint-code-block"><code${langAttr}>${escapedCode}</code></pre><button class="glint-copy-btn" type="button" data-code="${encodedCode}" title="复制代码">复制</button></div>`;
 }
 
 export function renderSafeMarkdown(markdown: string): string {
@@ -294,6 +302,7 @@ export function renderSafeMarkdown(markdown: string): string {
   // 拼接 HTML 块
   let html = "";
   const isBlockElement = (block: string): boolean =>
+    block.startsWith('<div class="glint-code-shell"') ||
     block.startsWith('<pre class="glint-code-block"') ||
     block.startsWith('<ul class="') ||
     block.startsWith('<ol class="') ||

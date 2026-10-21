@@ -24,6 +24,9 @@ Glint has two distinct test layers. Do not use one to claim the other.
 ## Commands
 
 ```bash
+# Everything CI runs, in the same order (use this before pushing)
+./scripts/check.sh
+
 # Contract suite
 node tests/e2e_runner.mjs
 
@@ -32,6 +35,9 @@ pnpm test
 
 # Core crate tests (no GTK/WebKit required)
 cargo test -p glint-core
+
+# Shell tests (the root `cargo test` skips these: default-members is glint-core)
+cargo test -p glint --lib
 
 # Full workspace type-check (requires GTK/WebKit dev headers)
 cargo check --workspace

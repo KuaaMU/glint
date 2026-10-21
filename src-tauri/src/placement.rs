@@ -51,6 +51,7 @@ impl Rect {
 /// The Screenshot portal returns one image of the whole virtual desktop, so the
 /// snip overlay has to cover this exact rectangle. Falls back to 1080p when the
 /// backend reports no monitors yet.
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 pub fn bounding_box(rects: &[Rect]) -> Rect {
     let Some(first) = rects.first() else {
         return Rect {

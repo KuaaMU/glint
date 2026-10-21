@@ -22,6 +22,7 @@ use tauri::{
     tray::TrayIconBuilder,
 };
 
+#[cfg(target_os = "linux")]
 const GLINT_APP_ID: &str = "com.glint.desktop";
 
 /// Default companion card size (logical pixels). Tall enough for ~12 lines of
@@ -326,6 +327,7 @@ pub fn trigger_capture_and_show(app: &AppHandle) {
 /// The Screenshot portal returns one image of the whole virtual desktop, so the
 /// overlay must cover that same rectangle. Sizing it to `current_monitor()`
 /// squeezed all displays into one monitor's frame.
+#[cfg(target_os = "linux")]
 fn virtual_desktop_bounds(window: &WebviewWindow) -> (i32, i32, u32, u32) {
     let mut rects = monitor_rects(window);
     if rects.is_empty()
@@ -351,6 +353,7 @@ fn virtual_desktop_bounds(window: &WebviewWindow) -> (i32, i32, u32, u32) {
 }
 
 /// The monitor the user is working on: the one containing the pointer.
+#[cfg(target_os = "linux")]
 fn active_monitor_rect(app: &AppHandle) -> Option<(placement::Rect, f64)> {
     let window = app.get_webview_window("hud")?;
     let (cx, cy) = get_cursor_pos();

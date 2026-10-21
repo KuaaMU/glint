@@ -83,6 +83,7 @@ fn query_active_x11_identity() -> Option<glint_core::HostIdentity> {
 }
 
 /// Extract the class (second value) from a `WM_CLASS(STRING) = "a", "b"` line.
+#[cfg(target_os = "linux")]
 fn parse_wm_class(text: &str) -> Option<String> {
     let line = text.lines().find(|l| l.starts_with("WM_CLASS"))?;
     let (_, values) = line.split_once('=')?;
@@ -95,6 +96,7 @@ fn parse_wm_class(text: &str) -> Option<String> {
 }
 
 /// Extract a quoted string property such as `_NET_WM_NAME(UTF8_STRING) = "x"`.
+#[cfg(target_os = "linux")]
 fn parse_xprop_string(text: &str, key: &str) -> Option<String> {
     let line = text.lines().find(|l| l.starts_with(key))?;
     let (_, value) = line.split_once('=')?;
@@ -106,6 +108,7 @@ fn parse_xprop_string(text: &str, key: &str) -> Option<String> {
 ///
 /// Matched on class only: a web page may legitimately have a title starting
 /// with "Glint", but no other app reports our WM class.
+#[cfg(target_os = "linux")]
 fn is_glint_window(class: &str) -> bool {
     let class = class.trim().to_ascii_lowercase();
     class == "glint" || class == "com.glint.desktop" || class.ends_with(".glint")

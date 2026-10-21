@@ -13,9 +13,9 @@ use std::thread::sleep;
 #[cfg(not(target_os = "linux"))]
 use std::time::Duration;
 
-pub use glint_core::{generate_fallback_capture, ScreenCaptureResult, SelectionResult};
 #[cfg(test)]
 pub use glint_core::encode_rgba_to_png_data_url;
+pub use glint_core::{ScreenCaptureResult, SelectionResult, generate_fallback_capture};
 
 #[cfg(not(target_os = "linux"))]
 use arboard::Clipboard;
@@ -150,7 +150,8 @@ mod tests {
         let rgba = vec![
             255, 0, 0, 255, 255, 0, 0, 255, 255, 0, 0, 255, 255, 0, 0, 255,
         ];
-        let data_url = encode_rgba_to_png_data_url(&rgba, 2, 2).expect("encoding PNG should succeed");
+        let data_url =
+            encode_rgba_to_png_data_url(&rgba, 2, 2).expect("encoding PNG should succeed");
         assert!(data_url.starts_with("data:image/png;base64,"));
         let b64_part = data_url.trim_start_matches("data:image/png;base64,");
         let decoded = base64::engine::general_purpose::STANDARD

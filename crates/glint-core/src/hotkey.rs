@@ -142,7 +142,10 @@ mod linux {
         fn un_register(&self, action_ids: &[String]) -> zbus::Result<()>;
     }
 
-    #[zbus::proxy(interface = "org.kde.kglobalaccel.Component", default_service = "org.kde.kglobalaccel")]
+    #[zbus::proxy(
+        interface = "org.kde.kglobalaccel.Component",
+        default_service = "org.kde.kglobalaccel"
+    )]
     trait KGlobalAccelComponent {
         #[zbus(signal, name = "globalShortcutPressed")]
         fn global_shortcut_pressed(
@@ -230,10 +233,7 @@ mod linux {
                 let mut last_err = None;
                 let mut proxy = None;
                 for _ in 0..10 {
-                    match KGlobalAccelComponentProxy::builder(&connection)
-                        .path(path.clone())
-                        .and_then(|builder| Ok(builder))
-                    {
+                    match KGlobalAccelComponentProxy::builder(&connection).path(path.clone()) {
                         Ok(builder) => match builder.build().await {
                             Ok(value) => {
                                 proxy = Some(value);

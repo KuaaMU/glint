@@ -45,18 +45,18 @@ pub const APP_ID: &str = "com.glint.desktop";
 /// the headless tools must use the same directory or they silently read an
 /// empty config while the GUI has a working key.
 pub fn default_config_path() -> PathBuf {
-    if let Ok(xdg) = std::env::var("XDG_CONFIG_HOME") {
-        if !xdg.trim().is_empty() {
-            return PathBuf::from(xdg).join(APP_ID).join("config.json");
-        }
+    if let Ok(xdg) = std::env::var("XDG_CONFIG_HOME")
+        && !xdg.trim().is_empty()
+    {
+        return PathBuf::from(xdg).join(APP_ID).join("config.json");
     }
-    if let Ok(home) = std::env::var("HOME") {
-        if !home.trim().is_empty() {
-            return PathBuf::from(home)
-                .join(".config")
-                .join(APP_ID)
-                .join("config.json");
-        }
+    if let Ok(home) = std::env::var("HOME")
+        && !home.trim().is_empty()
+    {
+        return PathBuf::from(home)
+            .join(".config")
+            .join(APP_ID)
+            .join("config.json");
     }
     PathBuf::from("glint_config.json")
 }
@@ -113,8 +113,10 @@ mod tests {
     fn config_round_trips_through_disk() {
         let dir = std::env::temp_dir().join(format!("glint-config-test-{}", std::process::id()));
         let path = dir.join("config.json");
-        let mut cfg = AppConfig::default();
-        cfg.model = "test-model".to_string();
+        let cfg = AppConfig {
+            model: "test-model".to_string(),
+            ..Default::default()
+        };
         save_config(&path, &cfg).unwrap();
         assert_eq!(load_config(&path), cfg);
         let _ = fs::remove_dir_all(dir);

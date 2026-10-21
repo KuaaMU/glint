@@ -1,6 +1,6 @@
-pub mod windows;
-pub mod macos;
 pub mod linux;
+pub mod macos;
+pub mod windows;
 
 #[cfg(not(target_os = "linux"))]
 use tauri::AppHandle;
@@ -56,11 +56,11 @@ pub fn get_active_window_identity() -> glint_core::HostIdentity {
     }
     #[cfg(target_os = "windows")]
     {
-        glint_core::HostIdentity::new(String::new(), get_active_window_title_opt())
+        windows::get_active_window_identity()
     }
     #[cfg(target_os = "macos")]
     {
-        glint_core::HostIdentity::new(String::new(), get_active_window_title_opt())
+        macos::get_active_window_identity()
     }
     #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
     {

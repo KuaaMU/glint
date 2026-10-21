@@ -102,10 +102,7 @@ pub enum TurnPlan {
 ///
 /// The rule is deliberately conservative: a wrong continuation leaks one
 /// document's context into another, which is worse than losing continuity.
-pub fn plan_turn(
-    envelope: &ContextEnvelope,
-    continuity: Option<&Continuity>,
-) -> TurnPlan {
+pub fn plan_turn(envelope: &ContextEnvelope, continuity: Option<&Continuity>) -> TurnPlan {
     let Some(previous) = continuity else {
         return TurnPlan::NewThread;
     };
@@ -123,7 +120,9 @@ pub fn plan_turn(
         _ => CONTINUE_WINDOW_MS,
     };
 
-    let idle_ms = envelope.captured_at_ms.saturating_sub(previous.last_turn_at_ms);
+    let idle_ms = envelope
+        .captured_at_ms
+        .saturating_sub(previous.last_turn_at_ms);
     if idle_ms > window {
         return TurnPlan::NewThread;
     }
@@ -139,8 +138,13 @@ pub fn sanitize_selection(raw: &str, max_chars: usize) -> (String, bool) {
     let mut cleaned = String::with_capacity(raw.len());
     for ch in raw.chars() {
         match ch {
-            '\u{200B}'..='\u{200F}' | '\u{202A}'..='\u{202E}' | '\u{2066}'..='\u{2069}'
-            | '\u{FEFF}' | '\u{0000}'..='\u{0008}' | '\u{000B}' | '\u{000C}'
+            '\u{200B}'..='\u{200F}'
+            | '\u{202A}'..='\u{202E}'
+            | '\u{2066}'..='\u{2069}'
+            | '\u{FEFF}'
+            | '\u{0000}'..='\u{0008}'
+            | '\u{000B}'
+            | '\u{000C}'
             | '\u{000E}'..='\u{001F}' => continue,
             '\t' | '\r' => cleaned.push(' '),
             _ => cleaned.push(ch),
@@ -213,11 +217,7 @@ pub fn build_messages(
             messages.push(ChatMessage::user_text(question.to_string()));
         }
         NewTurn::Image { prompt, data_url } => {
-            let text = format!(
-                "{}\n\n{}",
-                prompt,
-                envelope.depth.instruction()
-            );
+            let text = format!("{}\n\n{}", prompt, envelope.depth.instruction());
             messages.push(ChatMessage::user_multimodal(text, data_url));
         }
     }
@@ -229,10 +229,7 @@ pub fn build_messages(
 pub enum NewTurn<'a> {
     Text(&'a str),
     Question(&'a str),
-    Image {
-        prompt: &'a str,
-        data_url: &'a str,
-    },
+    Image { prompt: &'a str, data_url: &'a str },
 }
 
 /// Rough token estimate used for budgeting. CJK is ~1 token per character,
@@ -294,7 +291,11 @@ mod tests {
 
     #[test]
     fn starts_a_thread_without_history() {
-        let env = envelope(HostIdentity::new("firefox", None), TurnSelection::Text, 1_000);
+        let env = envelope(
+            HostIdentity::new("firefox", None),
+            TurnSelection::Text,
+            1_000,
+        );
         assert_eq!(plan_turn(&env, None), TurnPlan::NewThread);
     }
 
@@ -318,7 +319,11 @@ mod tests {
     #[test]
     fn idle_timeout_starts_a_thread() {
         let host = HostIdentity::new("firefox", None);
-        let env = envelope(host.clone(), TurnSelection::Text, CONTINUE_WINDOW_MS + 6_000);
+        let env = envelope(
+            host.clone(),
+            TurnSelection::Text,
+            CONTINUE_WINDOW_MS + 6_000,
+        );
         let cont = continuity(host, 5_000, 2);
         assert_eq!(plan_turn(&env, Some(&cont)), TurnPlan::NewThread);
     }

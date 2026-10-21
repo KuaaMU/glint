@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use std::time::Duration;
 
-use crate::tools::{execute_tool, get_available_tools_schema, ToolCallPayload};
+use crate::tools::{ToolCallPayload, execute_tool, get_available_tools_schema};
 
 /// Narrow sink interface: the core never knows whether the consumer is a
 /// Tauri IPC channel, a Slint property, or a CLI stdout writer.
@@ -96,9 +96,7 @@ impl ChatMessage {
         Self {
             role: "user".to_string(),
             content: MessageContent::Parts(vec![
-                ContentPart::Text {
-                    text: text.into(),
-                },
+                ContentPart::Text { text: text.into() },
                 ContentPart::ImageUrl {
                     image_url: ImageUrlPayload {
                         url: image_url.into(),
@@ -236,7 +234,12 @@ pub fn build_api_payload_with_tools(req: &QueryRequest, with_tools: bool) -> ser
 }
 
 pub async fn stream_explanation(req: QueryRequest, sink: Arc<dyn StreamSink>) {
-    let api_key = req.api_key.as_deref().unwrap_or_default().trim().to_string();
+    let api_key = req
+        .api_key
+        .as_deref()
+        .unwrap_or_default()
+        .trim()
+        .to_string();
     let base_url = req
         .base_url
         .as_deref()
@@ -302,7 +305,10 @@ pub async fn stream_explanation(req: QueryRequest, sink: Arc<dyn StreamSink>) {
     let status = res.status();
     if !status.is_success() {
         let err_txt = res.text().await.unwrap_or_default();
-        let _ = sink.send(StreamChunk::Error(format!("API 报错 (HTTP {}): {}", status, err_txt)));
+        let _ = sink.send(StreamChunk::Error(format!(
+            "API 报错 (HTTP {}): {}",
+            status, err_txt
+        )));
         return;
     }
 
@@ -345,10 +351,10 @@ pub async fn stream_explanation(req: QueryRequest, sink: Arc<dyn StreamSink>) {
                 accumulate_tool_calls(tool_calls, &mut pending_tools);
             }
 
-            if let Some(content) = choice["delta"]["content"].as_str() {
-                if !content.is_empty() {
-                    let _ = sink.send(StreamChunk::Token(content.to_string()));
-                }
+            if let Some(content) = choice["delta"]["content"].as_str()
+                && !content.is_empty()
+            {
+                let _ = sink.send(StreamChunk::Token(content.to_string()));
             }
         }
     }
@@ -397,7 +403,10 @@ pub async fn stream_explanation(req: QueryRequest, sink: Arc<dyn StreamSink>) {
         // One bounded follow-up turn: the model answers with the tool output
         // in context. No further tool calls are executed on this turn.
         if !tool_messages.is_empty() && started.elapsed() < Duration::from_secs(120) {
-            eprintln!("[glint-core] tool round complete ({} calls), requesting follow-up", calls.len());
+            eprintln!(
+                "[glint-core] tool round complete ({} calls), requesting follow-up",
+                calls.len()
+            );
             let followup = followup_request(&req, &calls, tool_messages);
             Box::pin(stream_once(followup, sink.clone(), false)).await;
             return;
@@ -430,15 +439,15 @@ fn accumulate_tool_calls(deltas: &[serde_json::Value], acc: &mut Vec<Accumulated
         }
         let entry = &mut acc[index];
 
-        if let Some(id) = delta["id"].as_str() {
-            if !id.is_empty() {
-                entry.id = Some(id.to_string());
-            }
+        if let Some(id) = delta["id"].as_str()
+            && !id.is_empty()
+        {
+            entry.id = Some(id.to_string());
         }
-        if let Some(name) = delta["function"]["name"].as_str() {
-            if !name.is_empty() {
-                entry.name = Some(name.to_string());
-            }
+        if let Some(name) = delta["function"]["name"].as_str()
+            && !name.is_empty()
+        {
+            entry.name = Some(name.to_string());
         }
         if let Some(args) = delta["function"]["arguments"].as_str() {
             entry.arguments.push_str(args);
@@ -489,7 +498,12 @@ fn followup_request(
 
 /// Stream the final answer without executing further tool calls.
 async fn stream_once(req: QueryRequest, sink: Arc<dyn StreamSink>, allow_tools: bool) {
-    let api_key = req.api_key.as_deref().unwrap_or_default().trim().to_string();
+    let api_key = req
+        .api_key
+        .as_deref()
+        .unwrap_or_default()
+        .trim()
+        .to_string();
     let base_url = req
         .base_url
         .as_deref()
@@ -541,7 +555,9 @@ async fn stream_once(req: QueryRequest, sink: Arc<dyn StreamSink>, allow_tools: 
         let status = response.status();
         let text = response.text().await.unwrap_or_default();
         eprintln!("[glint-core] follow-up HTTP {status}: {text}");
-        let _ = sink.send(StreamChunk::Error(format!("API 报错 (HTTP {status}): {text}")));
+        let _ = sink.send(StreamChunk::Error(format!(
+            "API 报错 (HTTP {status}): {text}"
+        )));
         return;
     }
 
@@ -552,7 +568,10 @@ async fn stream_once(req: QueryRequest, sink: Arc<dyn StreamSink>, allow_tools: 
         debug_body.len(),
         body["messages"]
             .as_array()
-            .map(|msgs| msgs.iter().filter_map(|m| m["role"].as_str()).collect::<Vec<_>>())
+            .map(|msgs| msgs
+                .iter()
+                .filter_map(|m| m["role"].as_str())
+                .collect::<Vec<_>>())
             .unwrap_or_default()
     );
 
@@ -575,17 +594,15 @@ async fn stream_once(req: QueryRequest, sink: Arc<dyn StreamSink>, allow_tools: 
                 let _ = sink.send(StreamChunk::Done);
                 return;
             }
-            if let Ok(value) = serde_json::from_str::<serde_json::Value>(data) {
-                if let Some(content) = value["choices"]
+            if let Ok(value) = serde_json::from_str::<serde_json::Value>(data)
+                && let Some(content) = value["choices"]
                     .as_array()
                     .and_then(|choices| choices.first())
                     .and_then(|choice| choice["delta"]["content"].as_str())
-                {
-                    if !content.is_empty() {
-                        emitted += content.chars().count();
-                        let _ = sink.send(StreamChunk::Token(content.to_string()));
-                    }
-                }
+                && !content.is_empty()
+            {
+                emitted += content.chars().count();
+                let _ = sink.send(StreamChunk::Token(content.to_string()));
             }
         }
     }
@@ -631,7 +648,9 @@ mod tests {
                     _ => panic!("第 0 项应为 Text"),
                 }
                 match &parts[1] {
-                    ContentPart::ImageUrl { image_url } => assert_eq!(image_url.url, "data:image/png;base64,AAAA"),
+                    ContentPart::ImageUrl { image_url } => {
+                        assert_eq!(image_url.url, "data:image/png;base64,AAAA")
+                    }
                     _ => panic!("第 1 项应为 ImageUrl"),
                 }
             }
@@ -672,7 +691,9 @@ mod tests {
 
         // index 2: 多模态
         assert_eq!(messages[2]["role"], "user");
-        let parts = messages[2]["content"].as_array().expect("多模态 content 应为数组");
+        let parts = messages[2]["content"]
+            .as_array()
+            .expect("多模态 content 应为数组");
         assert_eq!(parts.len(), 2);
         assert_eq!(parts[0]["type"], "text");
         assert_eq!(parts[0]["text"], "第二轮看图提问");
@@ -711,4 +732,3 @@ mod tests {
         assert_eq!(a["messages"][0]["content"], SYSTEM_PROMPT);
     }
 }
-

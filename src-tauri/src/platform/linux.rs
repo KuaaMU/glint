@@ -11,10 +11,10 @@ pub fn get_cursor_position() -> (i32, i32) {
                 if let Ok(v) = val.parse::<i32>() {
                     x = v;
                 }
-            } else if let Some(val) = part.strip_prefix("y:") {
-                if let Ok(v) = val.parse::<i32>() {
-                    y = v;
-                }
+            } else if let Some(val) = part.strip_prefix("y:")
+                && let Ok(v) = val.parse::<i32>()
+            {
+                y = v;
             }
         }
         return (x, y);
@@ -43,7 +43,10 @@ pub fn get_active_window_identity() -> glint_core::HostIdentity {
 
 #[cfg(target_os = "linux")]
 fn query_active_x11_identity() -> Option<glint_core::HostIdentity> {
-    let root = Command::new("xprop").args(["-root", "_NET_ACTIVE_WINDOW"]).output().ok()?;
+    let root = Command::new("xprop")
+        .args(["-root", "_NET_ACTIVE_WINDOW"])
+        .output()
+        .ok()?;
     if !root.status.success() {
         return None;
     }
@@ -65,8 +68,8 @@ fn query_active_x11_identity() -> Option<glint_core::HostIdentity> {
 
     // WM_CLASS is `"instance", "Class"`; the second value is the stable id.
     let class = parse_wm_class(&text).unwrap_or_default();
-    let caption = parse_xprop_string(&text, "_NET_WM_NAME")
-        .or_else(|| parse_xprop_string(&text, "WM_NAME"));
+    let caption =
+        parse_xprop_string(&text, "_NET_WM_NAME").or_else(|| parse_xprop_string(&text, "WM_NAME"));
 
     if caption.is_none() && class.is_empty() {
         return None;
@@ -82,7 +85,10 @@ fn query_active_x11_identity() -> Option<glint_core::HostIdentity> {
 fn parse_wm_class(text: &str) -> Option<String> {
     let line = text.lines().find(|l| l.starts_with("WM_CLASS"))?;
     let (_, values) = line.split_once('=')?;
-    let parts: Vec<&str> = values.split(',').map(|p| p.trim().trim_matches('"')).collect();
+    let parts: Vec<&str> = values
+        .split(',')
+        .map(|p| p.trim().trim_matches('"'))
+        .collect();
     let class = parts.get(1).or_else(|| parts.first())?.trim();
     (!class.is_empty()).then(|| class.to_string())
 }
@@ -137,9 +143,7 @@ fn derive_app_class_from_title(title: &str) -> String {
 
 #[cfg(target_os = "linux")]
 pub fn get_active_window_title() -> String {
-    get_active_window_identity()
-        .title
-        .unwrap_or_default()
+    get_active_window_identity().title.unwrap_or_default()
 }
 
 #[cfg(not(target_os = "linux"))]
@@ -207,7 +211,10 @@ mod tests {
             derive_app_class_from_title("Async in depth - Tokio - Mozilla Firefox"),
             "firefox"
         );
-        assert_eq!(derive_app_class_from_title("main.rs - Visual Studio Code"), "code");
+        assert_eq!(
+            derive_app_class_from_title("main.rs - Visual Studio Code"),
+            "code"
+        );
         assert_eq!(derive_app_class_from_title("anything else"), "");
     }
 }

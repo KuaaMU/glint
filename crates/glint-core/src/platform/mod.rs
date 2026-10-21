@@ -1,6 +1,6 @@
-pub mod windows;
-pub mod macos;
 pub mod linux;
+pub mod macos;
+pub mod windows;
 
 /// 获取当前鼠标光标物理屏幕坐标
 pub fn get_cursor_position() -> (i32, i32) {

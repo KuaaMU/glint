@@ -7,11 +7,11 @@ use std::sync::Arc;
 
 use tauri::ipc::Channel;
 
-pub use glint_core::{
-    stream_explanation as stream_explanation_core, QueryRequest, StreamChunk, StreamSink,
-};
 #[cfg(test)]
-pub use glint_core::{build_api_payload, ChatMessage};
+pub use glint_core::{ChatMessage, build_api_payload};
+pub use glint_core::{
+    QueryRequest, StreamChunk, StreamSink, stream_explanation as stream_explanation_core,
+};
 
 struct TauriChannelSink(Channel<StreamChunk>);
 

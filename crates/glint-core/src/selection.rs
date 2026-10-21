@@ -7,7 +7,7 @@
 
 use std::time::Instant;
 
-use crate::session::{detect_session, SessionType};
+use crate::session::{SessionType, detect_session};
 
 /// Hard cap on the bytes read from the selection owner.
 pub const MAX_RAW_BYTES: usize = 64 * 1024;
@@ -53,7 +53,11 @@ pub fn normalize_selection(raw: &str) -> (String, usize, bool) {
     let trimmed = raw.trim().trim_matches('\0').trim();
     let original_len = trimmed.chars().count();
     if original_len > MAX_CHARS {
-        (trimmed.chars().take(MAX_CHARS).collect(), original_len, true)
+        (
+            trimmed.chars().take(MAX_CHARS).collect(),
+            original_len,
+            true,
+        )
     } else {
         (trimmed.to_string(), original_len, false)
     }
@@ -71,10 +75,10 @@ impl SelectionSensor for LinuxSelectionSensor {
                 // Only protocol unavailability earns an XWayland fallback.
                 // An empty or timed-out PRIMARY is a real "no selection",
                 // and falling back could resurrect a stale X11 selection.
-                Err(CaptureError::Unavailable(_)) => match x11_primary() {
-                    Ok(text) => (text, SelectionSource::X11Primary),
-                    Err(err) => return Err(err),
-                },
+                Err(CaptureError::Unavailable(_)) => {
+                    let text = x11_primary()?;
+                    (text, SelectionSource::X11Primary)
+                }
                 Err(err) => return Err(err),
             },
             SessionType::X11 => (x11_primary()?, SelectionSource::X11Primary),
@@ -104,11 +108,10 @@ impl SelectionSensor for LinuxSelectionSensor {
 fn wayland_primary() -> Result<String, CaptureError> {
     use std::io::Read;
     use std::os::fd::AsRawFd;
-    use wl_clipboard_rs::paste::{get_contents, ClipboardType, MimeType, Seat};
+    use wl_clipboard_rs::paste::{ClipboardType, MimeType, Seat, get_contents};
 
-    let (mut pipe, _mime) =
-        get_contents(ClipboardType::Primary, Seat::Unspecified, MimeType::Text)
-            .map_err(map_wl_error)?;
+    let (mut pipe, _mime) = get_contents(ClipboardType::Primary, Seat::Unspecified, MimeType::Text)
+        .map_err(map_wl_error)?;
 
     let mut poll_fd = libc::pollfd {
         fd: pipe.as_raw_fd(),

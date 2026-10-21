@@ -17,10 +17,10 @@ pub fn get_cursor_position() -> (i32, i32) {
                 if let Ok(v) = val.parse::<i32>() {
                     x = v;
                 }
-            } else if let Some(val) = part.strip_prefix("y:") {
-                if let Ok(v) = val.parse::<i32>() {
-                    y = v;
-                }
+            } else if let Some(val) = part.strip_prefix("y:")
+                && let Ok(v) = val.parse::<i32>()
+            {
+                y = v;
             }
         }
         return (x, y);
@@ -30,7 +30,10 @@ pub fn get_cursor_position() -> (i32, i32) {
 
 #[cfg(target_os = "linux")]
 pub fn get_active_window_title() -> String {
-    if let Ok(out) = Command::new("xdotool").args(["getactivewindow", "getwindowname"]).output() {
+    if let Ok(out) = Command::new("xdotool")
+        .args(["getactivewindow", "getwindowname"])
+        .output()
+    {
         String::from_utf8_lossy(&out.stdout).trim().to_string()
     } else {
         String::new()

@@ -28,7 +28,9 @@ pub fn get_active_window_title() -> String {
         let mut buf = [0u16; 512];
         let len = GetWindowTextW(hwnd, buf.as_mut_ptr(), 512);
         if len > 0 {
-            String::from_utf16_lossy(&buf[..len as usize]).trim().to_string()
+            String::from_utf16_lossy(&buf[..len as usize])
+                .trim()
+                .to_string()
         } else {
             String::new()
         }
@@ -48,8 +50,8 @@ pub fn get_clipboard_sequence() -> u32 {
 #[cfg(target_os = "windows")]
 pub fn simulate_copy() {
     use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
-        keybd_event, GetAsyncKeyState, KEYEVENTF_KEYUP, VK_CONTROL, VK_MENU, VK_LMENU, VK_RMENU,
-        VK_SHIFT, VK_LSHIFT, VK_RSHIFT,
+        GetAsyncKeyState, KEYEVENTF_KEYUP, VK_CONTROL, VK_LMENU, VK_LSHIFT, VK_MENU, VK_RMENU,
+        VK_RSHIFT, VK_SHIFT, keybd_event,
     };
     const VK_C: u8 = 0x43;
 
@@ -106,17 +108,32 @@ where
 {
     std::thread::spawn(move || {
         use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
-            RegisterHotKey, MOD_ALT, MOD_NOREPEAT,
+            MOD_ALT, MOD_NOREPEAT, RegisterHotKey,
         };
         use windows_sys::Win32::UI::WindowsAndMessaging::{GetMessageW, MSG, WM_HOTKEY};
 
         unsafe {
             // 全局热键 Alt + Q (VK_Q = 0x51) -> 划词透视
-            let _ = RegisterHotKey(std::ptr::null_mut(), 101, (MOD_ALT | MOD_NOREPEAT) as u32, 0x51);
+            let _ = RegisterHotKey(
+                std::ptr::null_mut(),
+                101,
+                (MOD_ALT | MOD_NOREPEAT) as u32,
+                0x51,
+            );
             // 全局热键 Alt + D (VK_D = 0x44) -> 快速透视唤出/显隐切换
-            let _ = RegisterHotKey(std::ptr::null_mut(), 102, (MOD_ALT | MOD_NOREPEAT) as u32, 0x44);
+            let _ = RegisterHotKey(
+                std::ptr::null_mut(),
+                102,
+                (MOD_ALT | MOD_NOREPEAT) as u32,
+                0x44,
+            );
             // 全局热键 Alt + W (VK_W = 0x57) -> 截屏透视与标注
-            let _ = RegisterHotKey(std::ptr::null_mut(), 103, (MOD_ALT | MOD_NOREPEAT) as u32, 0x57);
+            let _ = RegisterHotKey(
+                std::ptr::null_mut(),
+                103,
+                (MOD_ALT | MOD_NOREPEAT) as u32,
+                0x57,
+            );
 
             let mut msg: MSG = std::mem::zeroed();
             while GetMessageW(&mut msg, std::ptr::null_mut(), 0, 0) != 0 {

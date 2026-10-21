@@ -6,19 +6,19 @@ mod platform;
 mod preferences;
 pub mod tools;
 
-use capture::{capture_selected_text, get_cursor_pos, SelectionResult};
+use capture::{SelectionResult, capture_selected_text, get_cursor_pos};
 use config::load_config;
-use llm::{stream_explanation, QueryRequest, StreamChunk};
+use llm::{QueryRequest, StreamChunk, stream_explanation};
 use preferences::{
     fetch_models, get_app_config, hide_preferences_window, open_preferences_window,
     test_llm_connection, update_app_config,
 };
 use std::sync::Arc;
 use tauri::{
+    AppHandle, Emitter, LogicalSize, Manager, PhysicalPosition, PhysicalSize, WebviewWindow,
     ipc::Channel,
     menu::{Menu, MenuItem},
     tray::TrayIconBuilder,
-    AppHandle, Emitter, LogicalSize, Manager, PhysicalPosition, PhysicalSize, WebviewWindow,
 };
 
 const GLINT_APP_ID: &str = "com.glint.desktop";
@@ -166,8 +166,8 @@ fn hud_outer_size(window: &WebviewWindow) -> (i32, i32) {
         _ => {
             let scale = window.scale_factor().unwrap_or(1.0);
             (
-                (CARD_W as f64 * scale).round() as i32,
-                (CARD_H as f64 * scale).round() as i32,
+                (CARD_W * scale).round() as i32,
+                (CARD_H * scale).round() as i32,
             )
         }
     }
@@ -327,21 +327,26 @@ pub fn trigger_capture_and_show(app: &AppHandle) {
 /// squeezed all displays into one monitor's frame.
 fn virtual_desktop_bounds(window: &WebviewWindow) -> (i32, i32, u32, u32) {
     let mut rects = monitor_rects(window);
-    if rects.is_empty() {
-        if let Some(monitor) = window.current_monitor().ok().flatten() {
-            let size = monitor.size();
-            let pos = monitor.position();
-            rects.push(placement::Rect {
-                x: pos.x,
-                y: pos.y,
-                width: size.width as i32,
-                height: size.height as i32,
-            });
-        }
+    if rects.is_empty()
+        && let Some(monitor) = window.current_monitor().ok().flatten()
+    {
+        let size = monitor.size();
+        let pos = monitor.position();
+        rects.push(placement::Rect {
+            x: pos.x,
+            y: pos.y,
+            width: size.width as i32,
+            height: size.height as i32,
+        });
     }
 
     let bounds = placement::bounding_box(&rects);
-    (bounds.x, bounds.y, bounds.width as u32, bounds.height as u32)
+    (
+        bounds.x,
+        bounds.y,
+        bounds.width as u32,
+        bounds.height as u32,
+    )
 }
 
 /// The monitor the user is working on: the one containing the pointer.
@@ -426,7 +431,8 @@ pub fn trigger_snipping_and_show(app: &AppHandle) {
                     let host = crate::platform::get_active_window_identity();
 
                     let _ = window.set_position(PhysicalPosition::new(rect.x, rect.y));
-                    let _ = window.set_size(PhysicalSize::new(rect.width as u32, rect.height as u32));
+                    let _ =
+                        window.set_size(PhysicalSize::new(rect.width as u32, rect.height as u32));
                     eprintln!(
                         "[Glint] snip overlay=({},{}) {}x{}, capture={}x{}",
                         rect.x, rect.y, rect.width, rect.height, frame.width, frame.height
@@ -485,10 +491,10 @@ pub fn trigger_snipping_and_show(app: &AppHandle) {
                 Err(err) => {
                     eprintln!("[Glint] 截屏失败: {err}");
                     let _ = app.emit("glint-screenshot-error", err.to_string());
-                    if HUD_VISIBLE_BEFORE_SNIP.swap(false, std::sync::atomic::Ordering::SeqCst) {
-                        if let Some(hud) = app.get_webview_window("hud") {
-                            let _ = hud.show();
-                        }
+                    if HUD_VISIBLE_BEFORE_SNIP.swap(false, std::sync::atomic::Ordering::SeqCst)
+                        && let Some(hud) = app.get_webview_window("hud")
+                    {
+                        let _ = hud.show();
                     }
                 }
             }
@@ -531,10 +537,10 @@ fn close_snipping_tool(app: AppHandle) {
         let _ = window.hide();
     }
     // Cancel: put the companion card back exactly where it was.
-    if HUD_VISIBLE_BEFORE_SNIP.swap(false, std::sync::atomic::Ordering::SeqCst) {
-        if let Some(hud) = app.get_webview_window("hud") {
-            let _ = hud.show();
-        }
+    if HUD_VISIBLE_BEFORE_SNIP.swap(false, std::sync::atomic::Ordering::SeqCst)
+        && let Some(hud) = app.get_webview_window("hud")
+    {
+        let _ = hud.show();
     }
 }
 
@@ -590,7 +596,7 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .setup(|app| {
             // 初始化窗口置顶状态
-            let cfg = load_config(&app.handle());
+            let cfg = load_config(app.handle());
             if let Some(hud) = app.get_webview_window("hud") {
                 let _ = hud.set_always_on_top(cfg.always_on_top);
             }
@@ -609,8 +615,7 @@ pub fn run() {
             {
                 let handle = app.handle().clone();
                 tauri::async_runtime::spawn(async move {
-                    let engine =
-                        glint_core::PlatformHotkeyEngine::new(GLINT_APP_ID, "Glint");
+                    let engine = glint_core::PlatformHotkeyEngine::new(GLINT_APP_ID, "Glint");
                     let bindings = glint_core::default_bindings();
                     let callback: glint_core::HotkeyCallback = Arc::new(move |action| {
                         eprintln!("[Glint] hotkey action: {action:?}");
@@ -645,7 +650,11 @@ pub fn run() {
                 .tooltip("Glint - 伴生透视 (Alt + Q / Alt + W)")
                 .show_menu_on_left_click(false)
                 .on_tray_icon_event(|tray, event| {
-                    if let tauri::tray::TrayIconEvent::Click { button: tauri::tray::MouseButton::Left, .. } = event {
+                    if let tauri::tray::TrayIconEvent::Click {
+                        button: tauri::tray::MouseButton::Left,
+                        ..
+                    } = event
+                    {
                         let app = tray.app_handle();
                         toggle_window_visibility(app);
                     }
@@ -677,11 +686,11 @@ pub fn run() {
             Ok(())
         })
         .on_window_event(|window, event| {
-            if window.label() == "preferences" || window.label() == "snipping" {
-                if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                    api.prevent_close();
-                    let _ = window.hide();
-                }
+            if (window.label() == "preferences" || window.label() == "snipping")
+                && let tauri::WindowEvent::CloseRequested { api, .. } = event
+            {
+                api.prevent_close();
+                let _ = window.hide();
             }
         })
         .invoke_handler(tauri::generate_handler![
@@ -719,7 +728,12 @@ mod tests {
             "prompt": "请分析此屏幕截图区域"
         });
 
-        assert!(payload["image_data_url"].as_str().unwrap().starts_with("data:image/png;base64,"));
+        assert!(
+            payload["image_data_url"]
+                .as_str()
+                .unwrap()
+                .starts_with("data:image/png;base64,")
+        );
         assert_eq!(payload["prompt"].as_str().unwrap(), "请分析此屏幕截图区域");
     }
 
@@ -728,7 +742,9 @@ mod tests {
         let req = llm::QueryRequest {
             messages: vec![
                 llm::ChatMessage::user_multimodal("请分析此截屏重点", "data:image/png;base64,AAAA"),
-                llm::ChatMessage::assistant("这是包含系统架构图的截屏，标注重点在于高速缓存和内存拓扑。"),
+                llm::ChatMessage::assistant(
+                    "这是包含系统架构图的截屏，标注重点在于高速缓存和内存拓扑。",
+                ),
                 llm::ChatMessage::user_text("其中 Cache 一致性如何避免性能倒退？"),
             ],
             api_key: Some("sk-test".to_string()),
@@ -748,4 +764,3 @@ mod tests {
         assert_eq!(msgs[3]["content"], "其中 Cache 一致性如何避免性能倒退？");
     }
 }
-

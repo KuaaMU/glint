@@ -7,9 +7,9 @@
 use std::sync::Arc;
 
 use glint_core::{
-    default_bindings, detect_session, is_kde, load_default_config, platform_sensor,
-    stream_explanation, ChatMessage, HotkeyAction, HotkeyCallback, PlatformHotkeyEngine,
-    QueryRequest, StreamChunk, StreamSink,
+    ChatMessage, HotkeyAction, HotkeyCallback, PlatformHotkeyEngine, QueryRequest, StreamChunk,
+    StreamSink, default_bindings, detect_session, is_kde, load_default_config, platform_sensor,
+    stream_explanation,
 };
 
 struct StdoutSink;
@@ -42,7 +42,9 @@ impl StreamSink for StdoutSink {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let command = std::env::args().nth(1).unwrap_or_else(|| "help".to_string());
+    let command = std::env::args()
+        .nth(1)
+        .unwrap_or_else(|| "help".to_string());
 
     match command.as_str() {
         "session" => {

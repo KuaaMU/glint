@@ -102,10 +102,7 @@ pub fn normalize_title(title: &str) -> String {
     }
 
     // Leading modification markers from editors: "● file.rs", "* file.txt"
-    text = text
-        .trim_start_matches(['●', '*', '•'])
-        .trim()
-        .to_string();
+    text = text.trim_start_matches(['●', '*', '•']).trim().to_string();
 
     text.split_whitespace().collect::<Vec<_>>().join(" ")
 }

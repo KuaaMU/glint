@@ -102,6 +102,10 @@ let currentHostTitle: string | null = null;
 const CONTINUE_WINDOW_MS = 30 * 60 * 1000;
 const SCREENSHOT_WINDOW_MS = 5 * 60 * 1000;
 const MAX_CONTINUED_TURNS = 8;
+// Used only when the platform cannot report an application class. Shorter than
+// the anchored windows because there is no document identity to rely on.
+const FALLBACK_TEXT_WINDOW_MS = 10 * 60 * 1000;
+const FALLBACK_SCREENSHOT_WINDOW_MS = 2 * 60 * 1000;
 
 interface ThreadState {
   appClass: string;
@@ -130,8 +134,28 @@ function shouldContinueThread(
   now: number
 ): boolean {
   if (!currentThread || conversationMessages.length === 0) return false;
-  // 应用类别为空时无法可靠判断，宁可新开也不要串味。
-  if (!host.appClass || host.appClass !== currentThread.appClass) return false;
+
+  // Platforms that cannot report an app class (Windows/macOS today) fall back
+  // to a short time window: continuity is weaker there, but it still works,
+  // and the turn limit keeps unrelated selections from piling up.
+  if (!host.appClass) {
+    if (currentThread.turnCount >= MAX_CONTINUED_TURNS) return false;
+    const fallbackWindow =
+      trigger === "screenshot" ? FALLBACK_SCREENSHOT_WINDOW_MS : FALLBACK_TEXT_WINDOW_MS;
+    return now - currentThread.lastTurnAt <= fallbackWindow;
+  }
+
+  // 应用类别不同，一定不续接。
+  if (host.appClass !== currentThread.appClass) return false;
+
+  // The previous thread was started without a class (e.g. restored from an
+  // older record); the time window is the only signal left.
+  if (!currentThread.appClass) {
+    const fallbackWindow =
+      trigger === "screenshot" ? FALLBACK_SCREENSHOT_WINDOW_MS : FALLBACK_TEXT_WINDOW_MS;
+    return now - currentThread.lastTurnAt <= fallbackWindow;
+  }
+
   if (currentThread.turnCount >= MAX_CONTINUED_TURNS) return false;
   if (currentThread.docKey && host.docKey && currentThread.docKey !== host.docKey) return false;
 
@@ -139,12 +163,16 @@ function shouldContinueThread(
   return now - currentThread.lastTurnAt <= window;
 }
 
-function rememberThread(host: { appClass: string; docKey: string | null }) {
+function rememberThread(
+  host: { appClass: string; docKey: string | null },
+  continuing: boolean
+) {
   currentThread = {
     appClass: host.appClass,
     docKey: host.docKey,
     lastTurnAt: Date.now(),
-    turnCount: (currentThread?.turnCount ?? 0) + 1,
+    // A continuing thread keeps its count; a new one starts at 1.
+    turnCount: (continuing ? currentThread?.turnCount ?? 0 : 0) + 1,
   };
 }
 
@@ -471,7 +499,7 @@ function startNewQuery(
     });
   }
 
-  rememberThread(identity);
+  rememberThread(identity, continuing);
 }
 
 // 开始多模态截图透视会话
@@ -526,7 +554,7 @@ function startNewMultimodalQuery(
     emptyElement(explanationText);
   }
 
-  rememberThread(identity);
+  rememberThread(identity, continuing);
 
   const banner = document.createElement("div");
   banner.className = "capture-preview-banner";

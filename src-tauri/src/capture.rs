@@ -15,7 +15,10 @@ use std::time::Duration;
 
 #[cfg(test)]
 pub use glint_core::encode_rgba_to_png_data_url;
-pub use glint_core::{ScreenCaptureResult, SelectionResult, generate_fallback_capture};
+pub use glint_core::{ScreenCaptureResult, SelectionResult};
+// Only the non-Windows placeholder screenshot uses this.
+#[cfg(not(target_os = "windows"))]
+pub use glint_core::generate_fallback_capture;
 
 #[cfg(not(target_os = "linux"))]
 use arboard::Clipboard;
@@ -61,6 +64,15 @@ fn get_clipboard_with_retry() -> Option<Clipboard> {
     None
 }
 
+/// Current clipboard text, trimmed, or `None` when empty/unavailable.
+#[cfg(not(target_os = "linux"))]
+fn clipboard_text() -> Option<String> {
+    let mut clip = get_clipboard_with_retry()?;
+    let text = clip.get_text().ok()?;
+    let trimmed = text.trim().to_string();
+    (!trimmed.is_empty()).then_some(trimmed)
+}
+
 /// Windows/macOS selection capture: synthesise copy and wait for the clipboard
 /// to change, then restore nothing (the caller owns nothing).
 #[cfg(not(target_os = "linux"))]
@@ -68,7 +80,7 @@ pub fn capture_selected_text() -> Option<SelectionResult> {
     let (cursor_x, cursor_y) = get_cursor_pos();
 
     let initial_seq = crate::platform::get_clipboard_sequence();
-    let original_snapshot = get_clipboard_with_retry().and_then(|mut c| c.get_text().ok());
+    let original_snapshot = clipboard_text();
 
     simulate_copy();
 
@@ -81,39 +93,28 @@ pub fn capture_selected_text() -> Option<SelectionResult> {
         let current_seq = crate::platform::get_clipboard_sequence();
         let seq_changed = initial_seq != 0 && current_seq != initial_seq;
 
-        if seq_changed {
+        // A changed sequence number means the app answered our copy. When the
+        // platform reports no sequence at all, fall back to comparing text.
+        let candidate = if seq_changed {
             sleep(Duration::from_millis(10));
-            if let Some(mut poll_clip) = get_clipboard_with_retry() {
-                if let Ok(new_text) = poll_clip.get_text() {
-                    let trimmed = new_text.trim();
-                    if !trimmed.is_empty() {
-                        captured_text = Some(trimmed.to_string());
-                        break;
-                    }
-                }
-            }
+            clipboard_text()
         } else if initial_seq == 0 {
-            if let Some(mut poll_clip) = get_clipboard_with_retry() {
-                if let Ok(current_text) = poll_clip.get_text() {
-                    let trimmed = current_text.trim();
-                    if !trimmed.is_empty() && Some(&current_text) != original_snapshot.as_ref() {
-                        captured_text = Some(trimmed.to_string());
-                        break;
-                    }
-                }
-            }
+            clipboard_text().filter(|text| Some(text) != original_snapshot.as_ref())
+        } else {
+            None
+        };
+
+        if let Some(text) = candidate {
+            captured_text = Some(text);
+            break;
         }
     }
 
-    if captured_text.is_none() {
-        if let Some(mut poll_clip) = get_clipboard_with_retry() {
-            if let Ok(current_text) = poll_clip.get_text() {
-                let trimmed = current_text.trim();
-                if !trimmed.is_empty() && Some(&current_text) != original_snapshot.as_ref() {
-                    captured_text = Some(trimmed.to_string());
-                }
-            }
-        }
+    if captured_text.is_none()
+        && let Some(text) = clipboard_text()
+        && Some(&text) != original_snapshot.as_ref()
+    {
+        captured_text = Some(text);
     }
 
     let window_title = crate::platform::get_active_window_title_opt();

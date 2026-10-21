@@ -188,26 +188,11 @@ pub fn spawn_global_hotkeys(
 
         unsafe {
             // 全局热键 Alt + Q (VK_Q = 0x51) -> 划词透视
-            let _ = RegisterHotKey(
-                std::ptr::null_mut(),
-                101,
-                (MOD_ALT | MOD_NOREPEAT) as u32,
-                0x51,
-            );
+            let _ = RegisterHotKey(std::ptr::null_mut(), 101, MOD_ALT | MOD_NOREPEAT, 0x51);
             // 全局热键 Alt + D (VK_D = 0x44) -> 快速透视唤出/显隐切换
-            let _ = RegisterHotKey(
-                std::ptr::null_mut(),
-                102,
-                (MOD_ALT | MOD_NOREPEAT) as u32,
-                0x44,
-            );
+            let _ = RegisterHotKey(std::ptr::null_mut(), 102, MOD_ALT | MOD_NOREPEAT, 0x44);
             // 全局热键 Alt + W (VK_W = 0x57) -> 截屏透视与标注
-            let _ = RegisterHotKey(
-                std::ptr::null_mut(),
-                103,
-                (MOD_ALT | MOD_NOREPEAT) as u32,
-                0x57,
-            );
+            let _ = RegisterHotKey(std::ptr::null_mut(), 103, MOD_ALT | MOD_NOREPEAT, 0x57);
 
             let mut msg: MSG = std::mem::zeroed();
             while GetMessageW(&mut msg, std::ptr::null_mut(), 0, 0) != 0 {

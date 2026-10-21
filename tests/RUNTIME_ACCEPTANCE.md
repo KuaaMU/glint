@@ -3,6 +3,32 @@
 Target: Fedora 45, KDE Plasma 6.7, Wayland. Every item is manual or measured on
 the real session. A green contract suite does not satisfy any item here.
 
+## Measured evidence (2026-10-21)
+
+Environment: `XDG_SESSION_TYPE=wayland`, `XDG_CURRENT_DESKTOP=KDE`,
+`WAYLAND_DISPLAY=wayland-0`, `xdg-desktop-portal-kde 6.7.5`.
+
+| Item | Command | Result |
+|---|---|---|
+| Session detection | `glint-cli session` | `wayland`, `kde: true` |
+| PRIMARY capture | `printf 'probe' \| wl-copy --primary` then `glint-cli capture` | `source: WaylandPrimary`, exact text returned |
+| Clipboard non-pollution | `glint-cli capture` | no clipboard write; only `wl-paste --primary` equivalent |
+| KGlobalAccel registration | `glint-cli hotkeys` | component `com.glint.Glint`, 3 actions, Qt keys `0x8000051`, `0x8000057`, `0xA000044` |
+| Hotkey signal delivery | `busctl ... invokeShortcut s selection-capture` | `[hotkey] SelectionCapture` printed |
+| Unregister on exit | Ctrl-C | all three actions removed; component gone |
+| Offline state | `glint-cli explain` with no key | explicit `未配置 API Key` error, no canned answer |
+| Cargo workspace | `cargo check --workspace` | passes |
+| Core tests | `cargo test -p glint-core` | 23 passed, 1 ignored (live probe) |
+
+### Known limitation found during P1
+
+`com.glint.desktop` is rejected as a KGlobalAccel component id: kglobalacceld
+treats any `*.desktop` component name as a desktop-file service action and
+silently drops it when no matching file exists in
+`$XDG_DATA_DIRS/kglobalaccel`. Glint therefore registers as
+`com.glint.Glint`. The reverse-DNS application id stays `com.glint.desktop`
+for the portal.
+
 ## Prerequisites
 
 ```bash

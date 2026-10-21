@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/glint-core", "src-tauri"]
+members = ["crates/glint-core", "crates/glint-cli", "src-tauri"]
 # Keep the default check fast: the Tauri shell needs GTK/WebKit development
 # headers, while the core crate must stay buildable on a bare Rust toolchain.
 default-members = ["crates/glint-core"]

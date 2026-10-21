@@ -520,10 +520,10 @@ pub fn trigger_snipping_and_show(app: &AppHandle) {
             }
             Err(e) => {
                 eprintln!("[Glint] 截屏错误: {}", e);
-                if HUD_VISIBLE_BEFORE_SNIP.swap(false, std::sync::atomic::Ordering::SeqCst) {
-                    if let Some(hud) = app.get_webview_window("hud") {
-                        let _ = hud.show();
-                    }
+                if HUD_VISIBLE_BEFORE_SNIP.swap(false, std::sync::atomic::Ordering::SeqCst)
+                    && let Some(hud) = app.get_webview_window("hud")
+                {
+                    let _ = hud.show();
                 }
             }
         }

@@ -131,12 +131,9 @@ pub fn capture_screen() -> Result<ScreenCaptureResult, String> {
         ReleaseDC(0 as _, hdc_screen);
 
         // BGRA 转 RGBA
-        for chunk in rgba_buf.chunks_exact_mut(4) {
-            let b = chunk[0];
-            let r = chunk[2];
-            chunk[0] = r;
-            chunk[2] = b;
-            chunk[3] = 255;
+        for pixel in rgba_buf.as_chunks_mut::<4>().0 {
+            pixel.swap(0, 2);
+            pixel[3] = 255;
         }
 
         let image_data_url = encode_rgba_to_png_data_url(&rgba_buf, width as u32, height as u32)?;

@@ -17,10 +17,10 @@ pub fn get_cursor_position() -> (i32, i32) {
     if let Ok(out) = output {
         let text = String::from_utf8_lossy(&out.stdout);
         let parts: Vec<&str> = text.trim().split(',').map(|s| s.trim()).collect();
-        if parts.len() == 2 {
-            if let (Ok(x), Ok(y)) = (parts[0].parse::<i32>(), parts[1].parse::<i32>()) {
-                return (x, y);
-            }
+        if parts.len() == 2
+            && let (Ok(x), Ok(y)) = (parts[0].parse::<i32>(), parts[1].parse::<i32>())
+        {
+            return (x, y);
         }
     }
     (300, 200)

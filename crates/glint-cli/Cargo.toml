@@ -11,3 +11,4 @@ path = "src/main.rs"
 [dependencies]
 glint-core = { path = "../glint-core" }
 tokio = { version = "1", features = ["full"] }
+base64 = "0.22"

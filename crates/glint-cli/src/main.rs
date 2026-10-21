@@ -65,6 +65,31 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 std::env::var("DISPLAY").unwrap_or_else(|_| "-".to_string())
             );
         }
+        "screen" => {
+            // Verify the portal really returns the whole virtual desktop: the
+            // snip overlay is sized to that same bounding box.
+            match glint_core::capture_via_portal().await {
+                Ok(frame) => {
+                    println!("capture: {}x{}", frame.width, frame.height);
+                    println!("data_url_bytes: {}", frame.image_data_url.len());
+                    // Optional output path for visual inspection: the portal
+                    // deletes its temp file, so keep a copy on request.
+                    if let Some(path) = std::env::args().nth(2) {
+                        use base64::Engine;
+                        let encoded = frame
+                            .image_data_url
+                            .strip_prefix("data:image/png;base64,")
+                            .unwrap_or("");
+                        let bytes = base64::engine::general_purpose::STANDARD
+                            .decode(encoded)
+                            .map_err(|err| err.to_string())?;
+                        std::fs::write(&path, bytes)?;
+                        println!("wrote: {path}");
+                    }
+                }
+                Err(err) => eprintln!("capture failed: {err}"),
+            }
+        }
         "capture" => {
             let candidate = platform_sensor().capture()?;
             println!("source: {:?}", candidate.source);

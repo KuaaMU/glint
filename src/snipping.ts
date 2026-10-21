@@ -8,9 +8,24 @@ interface ScreenGeometry {
   height: number;
 }
 
+interface CaptureSize {
+  width: number;
+  height: number;
+}
+
+interface CaptureGeometry extends CaptureSize {
+  /** Desktop coordinate of the capture image's top-left corner. */
+  origin_x: number;
+  origin_y: number;
+}
+
 interface ScreenCaptureResult {
   image_data_url: string;
-  geometry: ScreenGeometry;
+  /** Device-pixel geometry of the full virtual-desktop capture. */
+  capture?: CaptureGeometry;
+  /** The monitor the overlay was placed on, in desktop coordinates. */
+  monitor?: ScreenGeometry;
+  geometry?: ScreenGeometry;
   window_title?: string | null;
 }
 
@@ -93,11 +108,90 @@ function resizeCanvases() {
   redrawAll();
 }
 
+// 底图来源区域（截图坐标系，设备像素）。
+//
+// 截屏门户返回整个虚拟桌面，而叠加窗口只能覆盖一块屏幕的工作区：
+// KWin 会把 toplevel 限制在单个输出内，并让出顶部面板高度。于是这里
+// 取「窗口实际占据的桌面矩形」与「该屏幕矩形」的交集，按 1:1 从原图
+// 裁剪——既不压缩，也不做任何缩放。
+//
+// 窗口未映射时 outerPosition 不可信，映射后再根据真实几何重算一次。
+let bgSource: Rect = { x: 0, y: 0, width: 0, height: 0 };
+
+// 桌面坐标 → 截图像素坐标（含 DPR 与虚拟桌面原点偏移）。
+function desktopToCaptureScale(capture: ScreenCaptureResult): number {
+  const imgW = bgImage?.naturalWidth || 0;
+  if (!imgW || !capture.capture || capture.capture.width <= 0) return dpr;
+  return imgW / capture.capture.width;
+}
+
+// 窗口映射后的真实物理矩形（桌面坐标），由 Rust 在 show 之后回传。
+// 映射前 outerPosition 不可信，先用请求值兜底。
+let windowPhysical: ScreenGeometry | null = null;
+
+function computeCaptureSource(capture: ScreenCaptureResult): Rect {
+  const imgW = bgImage?.naturalWidth || 0;
+  const imgH = bgImage?.naturalHeight || 0;
+  if (!imgW || !imgH) {
+    return { x: 0, y: 0, width: 1, height: 1 };
+  }
+
+  const scale = desktopToCaptureScale(capture);
+  const originX = capture.capture?.origin_x ?? 0;
+  const originY = capture.capture?.origin_y ?? 0;
+
+  // 窗口矩形优先用后端回传的物理值；否则退回当前监视器矩形。
+  const win = windowPhysical ?? capture.monitor;
+  if (!win) {
+    return { x: 0, y: 0, width: imgW, height: imgH };
+  }
+
+  // 可显示区域 = 窗口矩形 ∩ 屏幕矩形（都以桌面坐标表示）。
+  let left = win.x;
+  let top = win.y;
+  let right = win.x + win.width;
+  let bottom = win.y + win.height;
+
+  if (capture.monitor) {
+    left = Math.max(left, capture.monitor.x);
+    top = Math.max(top, capture.monitor.y);
+    right = Math.min(right, capture.monitor.x + capture.monitor.width);
+    bottom = Math.min(bottom, capture.monitor.y + capture.monitor.height);
+  }
+
+  const width = Math.max(1, right - left);
+  const height = Math.max(1, bottom - top);
+
+  return {
+    x: Math.round((left - originX) * scale),
+    y: Math.round((top - originY) * scale),
+    width: Math.round(width * scale),
+    height: Math.round(height * scale),
+  };
+}
+
+function setCaptureSource(capture: ScreenCaptureResult) {
+  bgSource = computeCaptureSource(capture);
+}
+
 // 绘制底图
 function drawBackgroundImage() {
   bgCtx.clearRect(0, 0, viewW, viewH);
   if (bgImage && bgImage.complete && bgImage.naturalWidth > 0) {
-    bgCtx.drawImage(bgImage, 0, 0, viewW, viewH);
+    if (bgSource.width <= 0 && lastCapture) setCaptureSource(lastCapture);
+    bgCtx.fillStyle = "#000";
+    bgCtx.fillRect(0, 0, viewW, viewH);
+    bgCtx.drawImage(
+      bgImage,
+      bgSource.x,
+      bgSource.y,
+      bgSource.width,
+      bgSource.height,
+      0,
+      0,
+      viewW,
+      viewH
+    );
   } else {
     // 浏览器独立预览环境下的自适应渐变底图
     const grad = bgCtx.createLinearGradient(0, 0, viewW, viewH);
@@ -240,6 +334,7 @@ function updateSelectionBoxUI() {
 }
 
 let currentWindowTitle: string | null = null;
+let lastCapture: ScreenCaptureResult | null = null;
 
 // 初始化截屏数据载入
 function loadCaptureData(capture: ScreenCaptureResult) {
@@ -249,10 +344,14 @@ function loadCaptureData(capture: ScreenCaptureResult) {
   drawDrawer.style.display = "none";
   btnToggleDraw.classList.remove("active");
   currentWindowTitle = capture.window_title || null;
+  lastCapture = capture;
+  bgSource = { x: 0, y: 0, width: 0, height: 0 };
+  windowPhysical = null;
 
   const img = new Image();
   img.onload = () => {
     bgImage = img;
+    setCaptureSource(capture);
     resizeCanvases();
   };
   img.src = capture.image_data_url;
@@ -262,6 +361,15 @@ function loadCaptureData(capture: ScreenCaptureResult) {
 if (isTauri()) {
   listen<ScreenCaptureResult>("glint-snipping-capture", (event) => {
     loadCaptureData(event.payload);
+  });
+
+  // 窗口映射后，后端回传真实的物理几何；据此重算 1:1 裁剪区域。
+  listen<ScreenGeometry>("glint-snipping-geometry", (event) => {
+    windowPhysical = event.payload;
+    if (lastCapture && bgImage) {
+      setCaptureSource(lastCapture);
+      redrawAll();
+    }
   });
 } else {
   // 独立浏览器调试演示兜底

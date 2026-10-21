@@ -55,6 +55,30 @@ async fn explain(app: AppHandle, mut req: QueryRequest, on_event: Channel<Stream
     stream_explanation(req, on_event).await;
 }
 
+/// All monitors as plain rects. Geometry decisions stay in `placement`, so no
+/// X11 coordinate maths leaks into window or business code.
+fn monitor_rects(window: &WebviewWindow) -> Vec<placement::Rect> {
+    window
+        .available_monitors()
+        .unwrap_or_default()
+        .iter()
+        .map(|monitor| {
+            let size = monitor.size();
+            let pos = monitor.position();
+            placement::Rect {
+                x: pos.x,
+                y: pos.y,
+                width: size.width as i32,
+                height: size.height as i32,
+            }
+        })
+        .collect()
+}
+
+fn monitor_rect_at(window: &WebviewWindow, x: i32, y: i32) -> Option<placement::Rect> {
+    placement::monitor_at_point(&monitor_rects(window), placement::Point { x, y })
+}
+
 /// Place the HUD near the cursor/selection, preferring below then above so the
 /// card never covers the text it explains.
 ///
@@ -68,19 +92,21 @@ pub fn position_hud_window(
     card_w: i32,
     card_h: i32,
 ) {
-    let monitor_rect = window
-        .current_monitor()
-        .ok()
-        .flatten()
-        .map(|monitor| {
-            let size = monitor.size();
-            let pos = monitor.position();
-            placement::Rect {
-                x: pos.x,
-                y: pos.y,
-                width: size.width as i32,
-                height: size.height as i32,
-            }
+    // Use the monitor under the cursor, not the one the HUD last lived on.
+    // `current_monitor()` is stale while the window is hidden elsewhere, and
+    // clamping into it pushed the card onto the wrong display.
+    let monitor_rect = monitor_rect_at(window, cursor_x, cursor_y)
+        .or_else(|| {
+            window.current_monitor().ok().flatten().map(|monitor| {
+                let size = monitor.size();
+                let pos = monitor.position();
+                placement::Rect {
+                    x: pos.x,
+                    y: pos.y,
+                    width: size.width as i32,
+                    height: size.height as i32,
+                }
+            })
         })
         .unwrap_or(placement::Rect {
             x: 0,
@@ -176,6 +202,12 @@ fn reset_hud_size(app: AppHandle) {
 /// Whether the user pinned the card. A pinned HUD stays visible across new
 /// selections; Escape and the close button still dismiss it.
 static HUD_PINNED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Whether the HUD was on screen when the snip overlay was opened. The HUD is
+/// hidden before the portal grabs the desktop (otherwise it lands in the
+/// screenshot) and restored on cancel, not on submit.
+static HUD_VISIBLE_BEFORE_SNIP: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
 
 #[tauri::command]
 fn set_hud_pinned(pinned: bool) {
@@ -276,53 +308,170 @@ pub fn trigger_capture_and_show(app: &AppHandle) {
     }
 }
 
+/// Bounding box of every monitor, in physical desktop coordinates.
+///
+/// The Screenshot portal returns one image of the whole virtual desktop, so the
+/// overlay must cover that same rectangle. Sizing it to `current_monitor()`
+/// squeezed all displays into one monitor's frame.
+fn virtual_desktop_bounds(window: &WebviewWindow) -> (i32, i32, u32, u32) {
+    let mut rects = monitor_rects(window);
+    if rects.is_empty() {
+        if let Some(monitor) = window.current_monitor().ok().flatten() {
+            let size = monitor.size();
+            let pos = monitor.position();
+            rects.push(placement::Rect {
+                x: pos.x,
+                y: pos.y,
+                width: size.width as i32,
+                height: size.height as i32,
+            });
+        }
+    }
+
+    let bounds = placement::bounding_box(&rects);
+    (bounds.x, bounds.y, bounds.width as u32, bounds.height as u32)
+}
+
+/// The monitor the user is working on: the one containing the pointer.
+fn active_monitor_rect(app: &AppHandle) -> Option<(placement::Rect, f64)> {
+    let window = app.get_webview_window("hud")?;
+    let (cx, cy) = get_cursor_pos();
+    let rects = monitor_rects(&window);
+    if rects.is_empty() {
+        return None;
+    }
+
+    let rect = placement::monitor_at_point(&rects, placement::Point { x: cx, y: cy })
+        .or_else(|| rects.first().copied())?;
+
+    // Pick the scale factor of the matching Tauri monitor; geometry alone does
+    // not identify which display a rect came from.
+    let scale = window
+        .available_monitors()
+        .unwrap_or_default()
+        .iter()
+        .find(|m| {
+            let pos = m.position();
+            let size = m.size();
+            pos.x == rect.x && pos.y == rect.y && size.width as i32 == rect.width
+        })
+        .map(|m| m.scale_factor())
+        .unwrap_or_else(|| window.scale_factor().unwrap_or(1.0));
+
+    Some((rect, scale))
+}
+
 pub fn trigger_snipping_and_show(app: &AppHandle) {
-    let Some(window) = app.get_webview_window("snipping") else {
+    if app.get_webview_window("snipping").is_none() {
         return;
-    };
+    }
+
+    // Keep the HUD out of the capture. Compositors need a beat to actually
+    // unmap the window, so the Linux path waits before asking the portal.
+    if let Some(hud) = app.get_webview_window("hud") {
+        let visible = hud.is_visible().unwrap_or(false);
+        HUD_VISIBLE_BEFORE_SNIP.store(visible, std::sync::atomic::Ordering::SeqCst);
+        if visible {
+            let _ = hud.hide();
+        }
+    }
 
     #[cfg(target_os = "linux")]
     {
         let app = app.clone();
         tauri::async_runtime::spawn(async move {
+            // Let the hidden HUD disappear from the compositor's next frame.
+            tokio::time::sleep(std::time::Duration::from_millis(120)).await;
+
             match glint_core::capture_via_portal().await {
                 Ok(frame) => {
                     let Some(window) = app.get_webview_window("snipping") else {
                         return;
                     };
-                    // Cover the full logical desktop; the captured image keeps
-                    // its real pixel size for the selection math.
-                    let display = window
-                        .current_monitor()
-                        .ok()
-                        .flatten()
-                        .map(|monitor| {
-                            let size = monitor.size();
-                            let pos = monitor.position();
-                            (pos.x, pos.y, size.width as i32, size.height as i32)
-                        })
-                        .unwrap_or((0, 0, 1920, 1080));
 
-                    let _ = window.set_position(PhysicalPosition::new(display.0, display.1));
-                    let _ = window.set_size(PhysicalSize::new(display.2 as u32, display.3 as u32));
+                    // The portal captures the whole virtual desktop, but KWin
+                    // confines a toplevel overlay to one monitor's work area
+                    // (measured: a 2987x3280 request came back 2987x1610). So
+                    // cover only the monitor under the pointer and crop that
+                    // monitor's slice out of the capture instead of squeezing
+                    // every display into one.
+                    let (rect, _scale) = active_monitor_rect(&app).unwrap_or((
+                        placement::Rect {
+                            x: 0,
+                            y: 0,
+                            width: frame.width as i32,
+                            height: frame.height as i32,
+                        },
+                        1.0,
+                    ));
+                    // The image's (0,0) is the virtual-desktop bounding-box
+                    // origin, which is negative when a monitor sits left of or
+                    // above the primary one.
+                    let (bx, by, _, _) = virtual_desktop_bounds(&window);
+
+                    let _ = window.set_position(PhysicalPosition::new(rect.x, rect.y));
+                    let _ = window.set_size(PhysicalSize::new(rect.width as u32, rect.height as u32));
+                    eprintln!(
+                        "[Glint] snip overlay=({},{}) {}x{}, capture={}x{}",
+                        rect.x, rect.y, rect.width, rect.height, frame.width, frame.height
+                    );
 
                     let payload = serde_json::json!({
                         "image_data_url": frame.image_data_url,
-                        "geometry": {
-                            "x": display.0,
-                            "y": display.1,
+                        // Device-pixel geometry of the captured virtual desktop.
+                        "capture": {
                             "width": frame.width,
-                            "height": frame.height
+                            "height": frame.height,
+                            "origin_x": bx,
+                            "origin_y": by
+                        },
+                        // The monitor the overlay sits on, in desktop coords.
+                        // The frontend intersects this with the window's real
+                        // (work-area-clipped) size to crop 1:1, without ever
+                        // scaling the image.
+                        "monitor": {
+                            "x": rect.x,
+                            "y": rect.y,
+                            "width": rect.width,
+                            "height": rect.height
                         },
                         "window_title": crate::platform::get_active_window_title_opt()
                     });
                     let _ = window.emit("glint-snipping-capture", &payload);
                     let _ = window.show();
                     let _ = window.set_focus();
+
+                    // The compositor decides the final geometry (KWin keeps the
+                    // top panel strip free), and the frontend cannot infer it
+                    // from `window.screenX` under fractional scaling. Report the
+                    // mapped physical rect so the crop is exact.
+                    let verify = window.clone();
+                    tauri::async_runtime::spawn(async move {
+                        tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+                        let pos = verify.outer_position();
+                        let size = verify.outer_size();
+                        eprintln!("[Glint] snip window after show: pos={pos:?} size={size:?}");
+                        if let (Ok(pos), Ok(size)) = (pos, size) {
+                            let _ = verify.emit(
+                                "glint-snipping-geometry",
+                                serde_json::json!({
+                                    "x": pos.x,
+                                    "y": pos.y,
+                                    "width": size.width,
+                                    "height": size.height
+                                }),
+                            );
+                        }
+                    });
                 }
                 Err(err) => {
                     eprintln!("[Glint] 截屏失败: {err}");
                     let _ = app.emit("glint-screenshot-error", err.to_string());
+                    if HUD_VISIBLE_BEFORE_SNIP.swap(false, std::sync::atomic::Ordering::SeqCst) {
+                        if let Some(hud) = app.get_webview_window("hud") {
+                            let _ = hud.show();
+                        }
+                    }
                 }
             }
         });
@@ -330,6 +479,9 @@ pub fn trigger_snipping_and_show(app: &AppHandle) {
 
     #[cfg(not(target_os = "linux"))]
     {
+        let Some(window) = app.get_webview_window("snipping") else {
+            return;
+        };
         match capture::capture_screen() {
             Ok(cap) => {
                 let _ = window.set_position(PhysicalPosition::new(cap.geometry.x, cap.geometry.y));
@@ -340,6 +492,11 @@ pub fn trigger_snipping_and_show(app: &AppHandle) {
             }
             Err(e) => {
                 eprintln!("[Glint] 截屏错误: {}", e);
+                if HUD_VISIBLE_BEFORE_SNIP.swap(false, std::sync::atomic::Ordering::SeqCst) {
+                    if let Some(hud) = app.get_webview_window("hud") {
+                        let _ = hud.show();
+                    }
+                }
             }
         }
     }
@@ -355,6 +512,12 @@ fn close_snipping_tool(app: AppHandle) {
     if let Some(window) = app.get_webview_window("snipping") {
         let _ = window.hide();
     }
+    // Cancel: put the companion card back exactly where it was.
+    if HUD_VISIBLE_BEFORE_SNIP.swap(false, std::sync::atomic::Ordering::SeqCst) {
+        if let Some(hud) = app.get_webview_window("hud") {
+            let _ = hud.show();
+        }
+    }
 }
 
 #[tauri::command]
@@ -367,6 +530,9 @@ fn submit_snipping_result(
     if let Some(snip_win) = app.get_webview_window("snipping") {
         let _ = snip_win.hide();
     }
+    // Submit always brings the card back with the new turn; the cancel flag no
+    // longer applies.
+    HUD_VISIBLE_BEFORE_SNIP.store(false, std::sync::atomic::Ordering::SeqCst);
 
     if let Some(hud_win) = app.get_webview_window("hud") {
         let (cx, cy) = get_cursor_pos();

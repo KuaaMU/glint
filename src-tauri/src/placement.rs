@@ -33,6 +33,69 @@ impl Rect {
     pub fn bottom(&self) -> i32 {
         self.y + self.height
     }
+
+    pub fn contains(&self, point: Point) -> bool {
+        point.x >= self.x && point.x < self.right() && point.y >= self.y && point.y < self.bottom()
+    }
+
+    /// Squared distance from `point` to this rect (0 when inside).
+    pub fn squared_distance_to(&self, point: Point) -> i64 {
+        let dx = (self.x - point.x).max(point.x - self.right()).max(0) as i64;
+        let dy = (self.y - point.y).max(point.y - self.bottom()).max(0) as i64;
+        dx * dx + dy * dy
+    }
+}
+
+/// Bounding box of every monitor, in the same coordinate space as the input.
+///
+/// The Screenshot portal returns one image of the whole virtual desktop, so the
+/// snip overlay has to cover this exact rectangle. Falls back to 1080p when the
+/// backend reports no monitors yet.
+pub fn bounding_box(rects: &[Rect]) -> Rect {
+    let Some(first) = rects.first() else {
+        return Rect {
+            x: 0,
+            y: 0,
+            width: 1920,
+            height: 1080,
+        };
+    };
+
+    let mut min_x = first.x;
+    let mut min_y = first.y;
+    let mut max_x = first.right();
+    let mut max_y = first.bottom();
+    for rect in &rects[1..] {
+        min_x = min_x.min(rect.x);
+        min_y = min_y.min(rect.y);
+        max_x = max_x.max(rect.right());
+        max_y = max_y.max(rect.bottom());
+    }
+
+    Rect {
+        x: min_x,
+        y: min_y,
+        width: (max_x - min_x).max(1),
+        height: (max_y - min_y).max(1),
+    }
+}
+
+/// The monitor containing `point`, else the nearest one.
+///
+/// `cursor` is a physical desktop coordinate; monitors may have different sizes
+/// and sit at negative offsets, so this cannot assume a 0,0 origin.
+pub fn monitor_at_point(rects: &[Rect], point: Point) -> Option<Rect> {
+    let mut nearest: Option<(i64, Rect)> = None;
+    for rect in rects {
+        if rect.contains(point) {
+            return Some(*rect);
+        }
+        let distance = rect.squared_distance_to(point);
+        if nearest.is_none_or(|(best, _)| distance < best) {
+            nearest = Some((distance, *rect));
+        }
+    }
+    nearest.map(|(_, rect)| rect)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -124,6 +187,7 @@ pub fn place_near_selection(
 
 /// Overlap area between the card and the selection, used to assert the card
 /// never covers the text it explains.
+#[allow(dead_code)] // exercised by the placement tests, not by production code
 pub fn overlap_area(card: Rect, selection: Rect) -> i32 {
     let w = (card.right().min(selection.right()) - card.x.max(selection.x)).max(0);
     let h = (card.bottom().min(selection.bottom()) - card.y.max(selection.y)).max(0);
@@ -215,5 +279,117 @@ mod tests {
         let pos = place_near_selection(bounds, MONITOR, 440, 380);
         assert_eq!(pos.x, 500);
         assert_eq!(pos.y, 400 + GAP);
+    }
+
+    #[test]
+    fn bounding_box_spans_both_monitors() {
+        let left = Rect {
+            x: 0,
+            y: 0,
+            width: 1920,
+            height: 1080,
+        };
+        let right = Rect {
+            x: 1920,
+            y: 200,
+            width: 2560,
+            height: 1440,
+        };
+        assert_eq!(
+            bounding_box(&[left, right]),
+            Rect {
+                x: 0,
+                y: 0,
+                width: 4480,
+                height: 1640,
+            }
+        );
+    }
+
+    #[test]
+    fn bounding_box_handles_negative_origins() {
+        let left = Rect {
+            x: -1920,
+            y: 0,
+            width: 1920,
+            height: 1080,
+        };
+        let primary = Rect {
+            x: 0,
+            y: 0,
+            width: 1920,
+            height: 1080,
+        };
+        assert_eq!(
+            bounding_box(&[left, primary]),
+            Rect {
+                x: -1920,
+                y: 0,
+                width: 3840,
+                height: 1080,
+            }
+        );
+    }
+
+    #[test]
+    fn empty_monitor_list_falls_back_to_1080p() {
+        assert_eq!(
+            bounding_box(&[]),
+            Rect {
+                x: 0,
+                y: 0,
+                width: 1920,
+                height: 1080,
+            }
+        );
+    }
+
+    #[test]
+    fn picks_the_monitor_under_the_cursor() {
+        let left = Rect {
+            x: -1920,
+            y: 0,
+            width: 1920,
+            height: 1080,
+        };
+        let primary = Rect {
+            x: 0,
+            y: 0,
+            width: 1920,
+            height: 1080,
+        };
+        let monitors = [left, primary];
+        assert_eq!(
+            monitor_at_point(&monitors, Point { x: -400, y: 500 }),
+            Some(left)
+        );
+        assert_eq!(
+            monitor_at_point(&monitors, Point { x: 900, y: 500 }),
+            Some(primary)
+        );
+    }
+
+    #[test]
+    fn picks_the_nearest_monitor_when_cursor_is_in_a_gap() {
+        let left = Rect {
+            x: 0,
+            y: 0,
+            width: 1920,
+            height: 1080,
+        };
+        // Right monitor begins 200px of vertical offset lower.
+        let right = Rect {
+            x: 1920,
+            y: 200,
+            width: 1920,
+            height: 1080,
+        };
+        let monitors = [left, right];
+        // In the dead corner above the right monitor's top edge, but further
+        // from the left monitor's right edge than from the right monitor.
+        assert_eq!(
+            monitor_at_point(&monitors, Point { x: 2100, y: 100 }),
+            Some(right)
+        );
     }
 }

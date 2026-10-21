@@ -33,6 +33,12 @@ export interface GlintSessionRecord {
   imageDataUrl?: string;
   previewSnippet: string;
   messages: ChatMessage[];
+  /**
+   * Thread anchor (`context-key`) the session belongs to. Turns that share an
+   * anchor are the same reading thread even across HUD reopenings, so a later
+   * selection can genuinely "continue" the earlier one.
+   */
+  contextKey?: string;
 }
 
 const STORAGE_KEY = "glint_session_history_v1";

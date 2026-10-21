@@ -374,32 +374,52 @@ function startNewQuery(text: string, windowTitle?: string | null) {
 }
 
 // 开始多模态截图透视会话
+//
+// A screenshot is an *additional view* on the current lens, not a new topic.
+// When the card already holds a conversation (e.g. the user selected a
+// sentence and then snipped a diagram to ask about it), the image turn is
+// appended to that thread so the model keeps the prior answer in context.
+// Only an empty card starts a fresh session.
 function startNewMultimodalQuery(
   imageDataUrl: string,
   prompt?: string,
   windowTitle?: string | null
 ) {
-  activeSessionId++;
-  currentSessionId = `glint_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
-  currentSessionCreatedAt = Date.now();
+  const continuing = conversationMessages.length > 0;
+
+  if (!continuing) {
+    activeSessionId++;
+    currentSessionId = `glint_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+    currentSessionCreatedAt = Date.now();
+  }
   currentSessionIsMultimodal = true;
   currentSessionImageDataUrl = imageDataUrl;
 
   updateTruncationUI(false, 0);
-  updateHostBadge(windowTitle, "屏幕透视");
-  const defaultPrompt = prompt || "请分析所选屏幕区域的内容，一针见血透视核心本质与关键信息。";
-  conversationMessages = [
-    {
-      role: "user",
-      content: [
-        { type: "text", text: defaultPrompt },
-        { type: "image_url", image_url: { url: imageDataUrl } },
-      ],
-    },
-  ];
+  updateHostBadge(windowTitle || currentHostTitle, "屏幕透视");
 
-  // 渲染截图缩略图横幅 (安全 DOM 构建)
-  emptyElement(explanationText);
+  const defaultPrompt = prompt || "请分析所选屏幕区域的内容，一针见血透视核心本质与关键信息。";
+  const imageTurn: ChatMessage = {
+    role: "user",
+    content: [
+      { type: "text", text: defaultPrompt },
+      { type: "image_url", image_url: { url: imageDataUrl } },
+    ],
+  };
+
+  if (continuing) {
+    conversationMessages.push(imageTurn);
+
+    const divider = document.createElement("div");
+    divider.style.cssText =
+      "font-weight:600; color:var(--text-muted); margin:12px 0 6px 0; font-size:12px; border-top:1px dashed rgba(255,255,255,0.08); padding-top:8px;";
+    divider.textContent = "追问: 屏幕截图";
+    explanationText.appendChild(divider);
+  } else {
+    conversationMessages = [imageTurn];
+    // 渲染截图缩略图横幅 (安全 DOM 构建)
+    emptyElement(explanationText);
+  }
 
   const banner = document.createElement("div");
   banner.className = "capture-preview-banner";

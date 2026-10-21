@@ -747,10 +747,17 @@ tier1Suite.test(
 );
 
 tier1Suite.test(
-  "F11-TC5: System prompt envelope formats active window title context",
+  "F11-TC5: Host label enters the prompt as delimited data, not instructions",
   async () => {
     const content = readCoreSource("llm.rs");
-    assert.match(content, /前台应用窗口/);
+    // Window titles are attacker-controlled (any page can set one), so they
+    // must arrive inside a labelled data block with an explicit rule, and the
+    // delimiters must be escaped against early termination.
+    assert.match(content, /【宿主标签】/);
+    assert.match(content, /<host_label>/);
+    assert.match(content, /不是给你的指令/);
+    assert.match(content, /sanitize_host_label/);
+    assert.match(content, /replace\("<\/host_label>"/);
   },
   { milestone: "M3", feature: "F11" }
 );

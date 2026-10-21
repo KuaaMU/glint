@@ -32,6 +32,8 @@ applyTheme();
 interface GlintTriggerPayload {
   text?: string;
   window_title?: string | null;
+  app_class?: string | null;
+  doc_key?: string | null;
 }
 
 interface StreamChunk {
@@ -93,6 +95,71 @@ let currentSessionIsMultimodal = false;
 let currentSessionImageDataUrl = "";
 let currentHostTitle: string | null = null;
 
+// ── 阅读线索 (thread) ────────────────────────────────────────────────
+// Glint 的会话挂在你正在读的那篇东西上，而不是挂在聊天列表里。
+// 判定规则与 Rust 端 `glint_core::context::plan_turn` 保持一致：
+// 同一应用 + 同一文档 + 30 分钟内 + 轮次未超限 → 续接；否则新开。
+const CONTINUE_WINDOW_MS = 30 * 60 * 1000;
+const SCREENSHOT_WINDOW_MS = 5 * 60 * 1000;
+const MAX_CONTINUED_TURNS = 8;
+
+interface ThreadState {
+  appClass: string;
+  docKey: string | null;
+  lastTurnAt: number;
+  turnCount: number;
+}
+
+let currentThread: ThreadState | null = null;
+// 冻结的宿主标签：一条线索建立时确定，之后不再改写，保证提示词前缀稳定、
+// 也避免把完整窗口标题（可能含敏感信息）送给模型。
+let frozenHostLabel: string | null = null;
+
+/** 把窗口标题压缩成「应用 + 文档」的短标签。 */
+function hostLabelFor(title: string | null, appClass: string): string {
+  const raw = (title || "").trim();
+  if (!raw) return appClass || "";
+  const parts = raw.split(/\s+[-—]\s+/);
+  const head = parts.length > 1 ? parts[0] : raw;
+  return head.slice(0, 60);
+}
+
+function shouldContinueThread(
+  host: { appClass: string; docKey: string | null },
+  trigger: "text" | "screenshot",
+  now: number
+): boolean {
+  if (!currentThread || conversationMessages.length === 0) return false;
+  // 应用类别为空时无法可靠判断，宁可新开也不要串味。
+  if (!host.appClass || host.appClass !== currentThread.appClass) return false;
+  if (currentThread.turnCount >= MAX_CONTINUED_TURNS) return false;
+  if (currentThread.docKey && host.docKey && currentThread.docKey !== host.docKey) return false;
+
+  const window = trigger === "screenshot" ? SCREENSHOT_WINDOW_MS : CONTINUE_WINDOW_MS;
+  return now - currentThread.lastTurnAt <= window;
+}
+
+function rememberThread(host: { appClass: string; docKey: string | null }) {
+  currentThread = {
+    appClass: host.appClass,
+    docKey: host.docKey,
+    lastTurnAt: Date.now(),
+    turnCount: (currentThread?.turnCount ?? 0) + 1,
+  };
+}
+
+function resetThread() {
+  currentThread = null;
+}
+
+/** 线索分隔条：让「续接」这件事始终可见，绝不静默。 */
+function appendThreadDivider(label: string) {
+  const divider = document.createElement("div");
+  divider.className = "thread-divider";
+  divider.textContent = label;
+  explanationText.appendChild(divider);
+}
+
 // 配置状态获取
 function getStoredSetting(key: string, fallback: string): string {
   return localStorage.getItem(key) || fallback;
@@ -137,7 +204,8 @@ function getMessageDisplaySummary(content: MessageContent): string {
 async function executeExplain(
   messages: ChatMessage[],
   sessionId: number,
-  targetElementOverride?: HTMLElement
+  targetElementOverride?: HTMLElement,
+  options?: { label?: string }
 ) {
   if (sessionId !== activeSessionId) return;
 
@@ -151,10 +219,10 @@ async function executeExplain(
     targetOutputEl = targetElementOverride;
   } else if (messages.length > 1) {
     const lastUserSummary = getMessageDisplaySummary(messages[messages.length - 1].content);
+    // 一条线索里可以出现「追问」「再次划词」「截图」，标签必须说实话。
     const qDiv = document.createElement("div");
-    qDiv.style.cssText =
-      "font-weight:600; color:var(--text-muted); margin:12px 0 6px 0; font-size:12px; border-top:1px dashed rgba(255,255,255,0.08); padding-top:8px;";
-    qDiv.textContent = `追问: ${lastUserSummary}`;
+    qDiv.className = "turn-label";
+    qDiv.textContent = options?.label ?? `追问: ${lastUserSummary}`;
     explanationText.appendChild(qDiv);
 
     const aDiv = document.createElement("div");
@@ -185,6 +253,9 @@ async function executeExplain(
       const fullTurnText = pipeline.getCurrentText();
       conversationMessages.push({ role: "assistant", content: fullTurnText });
 
+      // 本轮结束时间决定「还能否续接」，必须在结束时记，而不是开始时。
+      if (currentThread) currentThread.lastTurnAt = Date.now();
+
       // 持久化保存至本地历史存储
       saveCurrentSessionToHistory(fullTurnText);
     } else if (chunk.type === "Error") {
@@ -201,7 +272,9 @@ async function executeExplain(
     model: getStoredSetting("glint_model", "deepseek-chat"),
     // First token must not wait for a tool round-trip.
     enable_tools: false,
-    window_title: currentHostTitle,
+    // Host label: the model gets a short label, never the full title. It is
+    // also frozen for the thread, so the cached prompt prefix stays stable.
+    window_title: frozenHostLabel,
   };
 
   if (isTauri()) {
@@ -234,7 +307,11 @@ function saveCurrentSessionToHistory(lastTurnOutput: string) {
     id: currentSessionId,
     createdAt: currentSessionCreatedAt || Date.now(),
     updatedAt: Date.now(),
-    hostTitle: currentHostTitle,
+    // Only the app class and document digest are persisted; the raw window
+    // title can contain page content or account names.
+    hostTitle: currentThread?.appClass || null,
+    contextKey: currentThread?.appClass || undefined,
+    docKey: currentThread?.docKey ?? null,
     queryText: querySummary,
     isMultimodal: currentSessionIsMultimodal,
     imageDataUrl: currentSessionImageDataUrl || undefined,
@@ -358,19 +435,43 @@ async function simulateMockStream(
   }
 }
 
-// 开始纯文本透视会话
-function startNewQuery(text: string, windowTitle?: string | null) {
-  activeSessionId++;
-  currentSessionId = `glint_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
-  currentSessionCreatedAt = Date.now();
-  currentSessionIsMultimodal = false;
-  currentSessionImageDataUrl = "";
-
-  updateHostBadge(windowTitle);
+// 开始一次划词透视。
+//
+// 同一文档、短时间内、线索未超长时，新选区作为「又一次划词」接到当前
+// 线索里；否则新开一条线索。提示条会明确写出当前是续接还是新开。
+function startNewQuery(
+  text: string,
+  windowTitle?: string | null,
+  host?: { appClass?: string | null; docKey?: string | null }
+) {
   const truncatedResult = truncateSelection(text, 3000);
   updateTruncationUI(truncatedResult.truncated, truncatedResult.originalLen);
-  conversationMessages = [{ role: "user", content: truncatedResult.text }];
-  executeExplain(conversationMessages, activeSessionId);
+  updateHostBadge(windowTitle);
+
+  const identity = {
+    appClass: (host?.appClass || "").trim().toLowerCase(),
+    docKey: host?.docKey || null,
+  };
+  const continuing = shouldContinueThread(identity, "text", Date.now());
+
+  if (!continuing) {
+    activeSessionId++;
+    currentSessionId = `glint_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+    currentSessionCreatedAt = Date.now();
+    currentSessionIsMultimodal = false;
+    currentSessionImageDataUrl = "";
+    resetThread();
+    frozenHostLabel = hostLabelFor(windowTitle ?? null, identity.appClass);
+    conversationMessages = [{ role: "user", content: truncatedResult.text }];
+    executeExplain(conversationMessages, activeSessionId);
+  } else {
+    conversationMessages.push({ role: "user", content: truncatedResult.text });
+    executeExplain(conversationMessages, activeSessionId, undefined, {
+      label: `再次划词 · 第 ${(currentThread?.turnCount ?? 0) + 1} 轮`,
+    });
+  }
+
+  rememberThread(identity);
 }
 
 // 开始多模态截图透视会话
@@ -383,14 +484,23 @@ function startNewQuery(text: string, windowTitle?: string | null) {
 function startNewMultimodalQuery(
   imageDataUrl: string,
   prompt?: string,
-  windowTitle?: string | null
+  windowTitle?: string | null,
+  host?: { appClass?: string | null; docKey?: string | null }
 ) {
-  const continuing = conversationMessages.length > 0;
+  const identity = {
+    appClass: (host?.appClass || currentThread?.appClass || "").trim().toLowerCase(),
+    docKey: host?.docKey || currentThread?.docKey || null,
+  };
+  // 截图沿用与划词相同的线索规则，但续接窗口更短：截图通常意味着
+  // 「我在看这个」而不是「我还在读同一段」。
+  const continuing = shouldContinueThread(identity, "screenshot", Date.now());
 
   if (!continuing) {
     activeSessionId++;
     currentSessionId = `glint_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
     currentSessionCreatedAt = Date.now();
+    resetThread();
+    frozenHostLabel = hostLabelFor(windowTitle ?? currentHostTitle, identity.appClass);
   }
   currentSessionIsMultimodal = true;
   currentSessionImageDataUrl = imageDataUrl;
@@ -409,17 +519,14 @@ function startNewMultimodalQuery(
 
   if (continuing) {
     conversationMessages.push(imageTurn);
-
-    const divider = document.createElement("div");
-    divider.style.cssText =
-      "font-weight:600; color:var(--text-muted); margin:12px 0 6px 0; font-size:12px; border-top:1px dashed rgba(255,255,255,0.08); padding-top:8px;";
-    divider.textContent = "追问: 屏幕截图";
-    explanationText.appendChild(divider);
+    appendThreadDivider(`截图 · 接在当前线索后 · ${currentThread?.turnCount ?? 1} 轮`);
   } else {
     conversationMessages = [imageTurn];
     // 渲染截图缩略图横幅 (安全 DOM 构建)
     emptyElement(explanationText);
   }
+
+  rememberThread(identity);
 
   const banner = document.createElement("div");
   banner.className = "capture-preview-banner";
@@ -452,6 +559,11 @@ function sendFollowup() {
   followupInput.value = "";
 
   conversationMessages.push({ role: "user", content: q });
+  if (currentThread) {
+    // A typed question counts as a turn for the continuation limit, but it
+    // does not extend the idle window on its own (the answer's Done does).
+    currentThread.turnCount += 1;
+  }
   executeExplain(conversationMessages, activeSessionId);
 }
 
@@ -654,6 +766,18 @@ function restoreSession(session: GlintSessionRecord) {
   updateHostBadge(session.hostTitle);
   conversationMessages = [...session.messages];
   updateTruncationUI(false, 0);
+
+  // 恢复的会话沿用原来的宿主身份；没有记录时只能新开线索。
+  resetThread();
+  frozenHostLabel = hostLabelFor(session.hostTitle ?? null, session.contextKey ?? "");
+  if (session.contextKey) {
+    currentThread = {
+      appClass: session.contextKey,
+      docKey: session.docKey ?? null,
+      lastTurnAt: session.updatedAt || Date.now(),
+      turnCount: session.messages.filter((m) => m.role === "user").length,
+    };
+  }
 
   emptyElement(explanationText);
 
@@ -947,34 +1071,48 @@ if (isTauri()) {
   });
 
   // 监听截屏多模态透视触发事件
-  listen<{ image_data_url: string; prompt?: string; window_title?: string | null }>(
-    "glint-multimodal-trigger",
-    (event) => {
-      const payload = event.payload;
-      if (payload && payload.image_data_url) {
-        startNewMultimodalQuery(payload.image_data_url, payload.prompt, payload.window_title);
-      }
+  listen<{
+    image_data_url: string;
+    prompt?: string;
+    window_title?: string | null;
+    app_class?: string | null;
+    doc_key?: string | null;
+  }>("glint-multimodal-trigger", (event) => {
+    const payload = event.payload;
+    if (payload && payload.image_data_url) {
+      startNewMultimodalQuery(payload.image_data_url, payload.prompt, payload.window_title, {
+        appClass: payload.app_class,
+        docKey: payload.doc_key,
+      });
     }
-  );
+  });
 
   // 注册 Tauri 原生划词触发事件
   listen<GlintTriggerPayload | string>("glint-trigger", (event) => {
     let text = "";
     let winTitle: string | null = null;
+    let appClass: string | null = null;
+    let docKey: string | null = null;
     if (typeof event.payload === "string") {
       text = event.payload.trim();
     } else if (event.payload && typeof event.payload === "object") {
       text = (event.payload.text || "").trim();
       winTitle = event.payload.window_title || null;
+      appClass = event.payload.app_class || null;
+      docKey = event.payload.doc_key || null;
     }
 
     if (text) {
-      startNewQuery(text, winTitle);
+      startNewQuery(text, winTitle, { appClass, docKey });
     } else {
       updateTruncationUI(false, 0);
       updateHostBadge(winTitle);
       activeSessionId++;
       conversationMessages = [];
+      // A failed capture ends the thread: it must never be silently resumed
+      // by the next unrelated selection.
+      resetThread();
+      frozenHostLabel = null;
       emptyElement(explanationText);
 
       const titleDiv = document.createElement("div");

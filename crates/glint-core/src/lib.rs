@@ -1,5 +1,7 @@
 pub mod capture;
 pub mod config;
+pub mod context;
+pub mod host;
 pub mod hotkey;
 pub mod llm;
 pub mod platform;
@@ -20,6 +22,10 @@ pub use hotkey::{
     default_bindings, HotkeyAction, HotkeyBinding, HotkeyCallback, HotkeyError, KeyChord,
     PlatformHotkeyEngine,
 };
+pub use context::{
+    build_messages, plan_turn, Continuity, ContextEnvelope, Depth, TurnPlan, TurnSelection,
+};
+pub use host::{doc_key_from_title, normalize_title, HostIdentity};
 pub use llm::{
     build_api_payload, stream_explanation, ChatMessage, QueryRequest, StreamChunk, StreamSink,
 };

@@ -286,6 +286,16 @@ pub fn trigger_capture_and_show(app: &AppHandle) {
             }
         };
 
+        // MUST be read before `show()`: once the HUD takes focus, KWin reports
+        // "Glint" as the foreground app and every selection would look like the
+        // same document, silently merging unrelated threads.
+        let host = crate::platform::get_active_window_identity();
+        let window_title = window_title.or_else(|| host.title.clone());
+        eprintln!(
+            "[Glint] host: class={:?} doc_key={:?}",
+            host.app_class, host.doc_key
+        );
+
         prepare_hud(&window, cursor_x, cursor_y);
         if let Err(err) = window.show() {
             eprintln!("[Glint] show failed: {err}");
@@ -302,7 +312,9 @@ pub fn trigger_capture_and_show(app: &AppHandle) {
             "glint-trigger",
             serde_json::json!({
                 "text": text,
-                "window_title": window_title
+                "window_title": window_title,
+                "app_class": host.app_class,
+                "doc_key": host.doc_key
             }),
         );
     }
@@ -409,6 +421,10 @@ pub fn trigger_snipping_and_show(app: &AppHandle) {
                     // above the primary one.
                     let (bx, by, _, _) = virtual_desktop_bounds(&window);
 
+                    // Identity of the app the user snipped from. Read before the
+                    // overlay maps so it cannot describe the overlay itself.
+                    let host = crate::platform::get_active_window_identity();
+
                     let _ = window.set_position(PhysicalPosition::new(rect.x, rect.y));
                     let _ = window.set_size(PhysicalSize::new(rect.width as u32, rect.height as u32));
                     eprintln!(
@@ -435,7 +451,9 @@ pub fn trigger_snipping_and_show(app: &AppHandle) {
                             "width": rect.width,
                             "height": rect.height
                         },
-                        "window_title": crate::platform::get_active_window_title_opt()
+                        "window_title": crate::platform::get_active_window_title_opt(),
+                        "app_class": host.app_class,
+                        "doc_key": host.doc_key
                     });
                     let _ = window.emit("glint-snipping-capture", &payload);
                     let _ = window.show();
@@ -526,6 +544,8 @@ fn submit_snipping_result(
     image_data_url: String,
     prompt: Option<String>,
     window_title: Option<String>,
+    app_class: Option<String>,
+    doc_key: Option<String>,
 ) {
     if let Some(snip_win) = app.get_webview_window("snipping") {
         let _ = snip_win.hide();
@@ -545,7 +565,9 @@ fn submit_snipping_result(
             serde_json::json!({
                 "image_data_url": image_data_url,
                 "prompt": prompt,
-                "window_title": window_title
+                "window_title": window_title,
+                "app_class": app_class,
+                "doc_key": doc_key
             }),
         );
     }

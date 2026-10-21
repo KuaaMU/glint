@@ -589,6 +589,39 @@ html, body {
   min-width: 0;
 }
 
+/* Label for one turn inside a thread: "追问: …" or "划词: …". */
+.turn-label {
+  font-weight: 600;
+  color: var(--text-muted);
+  margin: 12px 0 6px 0;
+  font-size: 12px;
+  border-top: 1px dashed rgba(255, 255, 255, 0.08);
+  padding-top: 8px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+/* Continuity marker. Deliberately quiet, but always present: a silently
+ * continued thread is the one failure mode users cannot see coming. */
+.thread-divider {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 14px 0 4px 0;
+  font-size: 11px;
+  letter-spacing: 0.02em;
+  color: var(--text-muted);
+  opacity: 0.75;
+}
+
+.thread-divider::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: currentColor;
+  opacity: 0.25;
+}
+
 /* Widgets and code blocks must never force the card wider than the viewport. */
 .glint-widget,
 .glint-code-block,

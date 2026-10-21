@@ -39,6 +39,11 @@ export interface GlintSessionRecord {
    * selection can genuinely "continue" the earlier one.
    */
   contextKey?: string;
+  /**
+   * Document digest inside that app, from `glint_core::HostIdentity`. Only the
+   * digest is stored — never the raw window title.
+   */
+  docKey?: string | null;
 }
 
 const STORAGE_KEY = "glint_session_history_v1";

@@ -45,6 +45,29 @@ pub fn get_active_window_title() -> String {
     }
 }
 
+/// 前台宿主应用的稳定身份：应用类别 + 标题（仅内存）。
+///
+/// This is what thread continuity is anchored to. The raw title is never sent
+/// to the model or written to disk; see `glint_core::HostIdentity`.
+pub fn get_active_window_identity() -> glint_core::HostIdentity {
+    #[cfg(target_os = "linux")]
+    {
+        linux::get_active_window_identity()
+    }
+    #[cfg(target_os = "windows")]
+    {
+        glint_core::HostIdentity::new(String::new(), get_active_window_title_opt())
+    }
+    #[cfg(target_os = "macos")]
+    {
+        glint_core::HostIdentity::new(String::new(), get_active_window_title_opt())
+    }
+    #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
+    {
+        glint_core::HostIdentity::default()
+    }
+}
+
 /// 获取前台宿主应用窗口标题 Option 包装 (空字符串返回 None)
 pub fn get_active_window_title_opt() -> Option<String> {
     let title = get_active_window_title();

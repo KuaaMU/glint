@@ -8,6 +8,7 @@ export const PROJECT_ROOT = path.resolve(__dirname, "..");
 export const SRC_DIR = path.join(PROJECT_ROOT, "src");
 export const SRC_TAURI_DIR = path.join(PROJECT_ROOT, "src-tauri");
 export const CRATES_DIR = path.join(PROJECT_ROOT, "crates");
+export const GLINT_CORE_DIR = path.join(CRATES_DIR, "glint-core");
 export const GLINT_HUD_DIR = path.join(CRATES_DIR, "glint-hud");
 export const README_PATH = path.join(PROJECT_ROOT, "README.md");
 export const PROJECT_MD_PATH = path.join(PROJECT_ROOT, "PROJECT.md");

@@ -23,7 +23,7 @@ thiserror = "2"
 [target.'cfg(target_os = "linux")'.dependencies]
 wl-clipboard-rs = "0.9"
 x11-clipboard = "0.9"
-ashpd = { version = "0.13", features = ["global_shortcuts"] }
+ashpd = { version = "0.13", features = ["global_shortcuts", "screenshot"] }
 zbus = { version = "5", default-features = false, features = ["tokio"] }
 libc = "0.2"
 

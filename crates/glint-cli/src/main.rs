@@ -95,6 +95,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 },
                 base_url: Some(config.base_url),
                 model: Some(config.model),
+                // CLI is a debugging harness: allow one tool round on demand.
+                enable_tools: std::env::args().any(|arg| arg == "--tools"),
                 window_title: None,
             };
 

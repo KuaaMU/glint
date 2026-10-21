@@ -1,6 +1,7 @@
 mod capture;
 mod config;
 mod llm;
+mod placement;
 mod platform;
 mod preferences;
 pub mod tools;
@@ -12,12 +13,15 @@ use preferences::{
     fetch_models, get_app_config, hide_preferences_window, open_preferences_window,
     test_llm_connection, update_app_config,
 };
+use std::sync::Arc;
 use tauri::{
     ipc::Channel,
     menu::{Menu, MenuItem},
     tray::TrayIconBuilder,
     AppHandle, Emitter, LogicalSize, Manager, PhysicalPosition, PhysicalSize, WebviewWindow,
 };
+
+const GLINT_APP_ID: &str = "com.glint.desktop";
 
 #[tauri::command]
 fn get_selection() -> Option<SelectionResult> {
@@ -46,40 +50,74 @@ async fn explain(app: AppHandle, mut req: QueryRequest, on_event: Channel<Stream
     stream_explanation(req, on_event).await;
 }
 
-pub fn position_hud_window(window: &WebviewWindow, cursor_x: i32, cursor_y: i32) {
-    let win_size = window.outer_size().unwrap_or(PhysicalSize::new(440, 380));
-    let win_w = win_size.width as i32;
-    let win_h = win_size.height as i32;
+/// Place the HUD near the cursor/selection, preferring below then above so the
+/// card never covers the text it explains.
+///
+/// Wayland ignores `set_position` on a normal toplevel, so this only takes
+/// effect on X11/XWayland; the caller logs whether it actually moved.
+pub fn position_hud_window(
+    window: &WebviewWindow,
+    cursor_x: i32,
+    cursor_y: i32,
+    selection: Option<placement::Rect>,
+    card_w: i32,
+    card_h: i32,
+) {
+    let monitor_rect = window
+        .current_monitor()
+        .ok()
+        .flatten()
+        .map(|monitor| {
+            let size = monitor.size();
+            let pos = monitor.position();
+            placement::Rect {
+                x: pos.x,
+                y: pos.y,
+                width: size.width as i32,
+                height: size.height as i32,
+            }
+        })
+        .unwrap_or(placement::Rect {
+            x: 0,
+            y: 0,
+            width: 1920,
+            height: 1080,
+        });
 
-    let mut target_x = cursor_x + 8;
-    let mut target_y = cursor_y + 8;
+    let bounds = placement::SelectionBounds {
+        cursor: placement::Point {
+            x: cursor_x,
+            y: cursor_y,
+        },
+        extent: selection,
+    };
+    let target = placement::place_near_selection(bounds, monitor_rect, card_w, card_h);
 
-    if let Ok(Some(monitor)) = window.current_monitor() {
-        let mon_size = monitor.size();
-        let mon_pos = monitor.position();
-        let mon_x = mon_pos.x;
-        let mon_y = mon_pos.y;
-        let mon_w = mon_size.width as i32;
-        let mon_h = mon_size.height as i32;
-
-        if target_x + win_w > mon_x + mon_w {
-            target_x = (cursor_x - win_w - 8).max(mon_x + 10);
-        }
-        if target_y + win_h > mon_y + mon_h {
-            target_y = (cursor_y - win_h - 8).max(mon_y + 10);
-        }
-    } else {
-        target_x = target_x.max(10);
-        target_y = target_y.max(10);
+    match window.set_position(PhysicalPosition::new(target.x, target.y)) {
+        Ok(()) => {}
+        Err(err) => eprintln!("[Glint] set_position failed (Wayland toplevel?): {err}"),
     }
+}
 
-    let _ = window.set_position(PhysicalPosition::new(target_x, target_y));
+/// Current outer size in physical pixels, defaulting to the configured card.
+fn hud_outer_size(window: &WebviewWindow) -> (i32, i32) {
+    match window.outer_size() {
+        Ok(size) if size.width > 0 && size.height > 0 => (size.width as i32, size.height as i32),
+        _ => {
+            let scale = window.scale_factor().unwrap_or(1.0);
+            (
+                (440.0 * scale).round() as i32,
+                (380.0 * scale).round() as i32,
+            )
+        }
+    }
 }
 
 #[tauri::command]
 fn reposition_window(app: AppHandle, x: i32, y: i32) {
     if let Some(window) = app.get_webview_window("hud") {
-        position_hud_window(&window, x, y);
+        let (w, h) = hud_outer_size(&window);
+        position_hud_window(&window, x, y, None, w, h);
         let _ = window.show();
         let _ = window.set_focus();
     }
@@ -101,6 +139,30 @@ fn reset_hud_size(app: AppHandle) {
     }
 }
 
+/// Whether the user pinned the card. A pinned HUD stays visible across new
+/// selections; Escape and the close button still dismiss it.
+static HUD_PINNED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+#[tauri::command]
+fn set_hud_pinned(pinned: bool) {
+    HUD_PINNED.store(pinned, std::sync::atomic::Ordering::Relaxed);
+}
+
+fn hud_is_pinned() -> bool {
+    HUD_PINNED.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// Resize and place the card, keeping a pinned card's user-set size.
+fn prepare_hud(window: &WebviewWindow, cursor_x: i32, cursor_y: i32) {
+    if !hud_is_pinned() {
+        if let Err(err) = window.set_size(LogicalSize::new(440.0, 380.0)) {
+            eprintln!("[Glint] set_size failed: {err}");
+        }
+    }
+    let (w, h) = hud_outer_size(window);
+    position_hud_window(window, cursor_x, cursor_y, None, w, h);
+}
+
 #[tauri::command]
 fn hide_window(app: AppHandle) {
     if let Some(window) = app.get_webview_window("hud") {
@@ -119,7 +181,8 @@ pub fn toggle_window_visibility(app: &AppHandle) {
             let _ = window.hide();
         } else {
             let (cx, cy) = get_cursor_pos();
-            position_hud_window(&window, cx, cy);
+            let (w, h) = hud_outer_size(&window);
+            position_hud_window(&window, cx, cy, None, w, h);
             let _ = window.show();
             let _ = window.set_focus();
         }
@@ -127,7 +190,13 @@ pub fn toggle_window_visibility(app: &AppHandle) {
 }
 
 pub fn trigger_capture_and_show(app: &AppHandle) {
+    eprintln!("[Glint] trigger_capture_and_show");
     if let Some(window) = app.get_webview_window("hud") {
+        eprintln!(
+            "[Glint] hud window found; visible={:?} outer={:?}",
+            window.is_visible(),
+            window.outer_size()
+        );
         let (text, cursor_x, cursor_y, window_title) = match capture_selected_text() {
             Some(res) => (res.text, res.cursor_x, res.cursor_y, res.window_title),
             None => {
@@ -137,9 +206,18 @@ pub fn trigger_capture_and_show(app: &AppHandle) {
             }
         };
 
-        position_hud_window(&window, cursor_x, cursor_y);
-        let _ = window.show();
-        let _ = window.set_focus();
+        prepare_hud(&window, cursor_x, cursor_y);
+        if let Err(err) = window.show() {
+            eprintln!("[Glint] show failed: {err}");
+        }
+        if let Err(err) = window.set_focus() {
+            eprintln!("[Glint] set_focus failed: {err}");
+        }
+        eprintln!(
+            "[Glint] after show: visible={:?} outer={:?}",
+            window.is_visible(),
+            window.outer_size()
+        );
         let _ = app.emit(
             "glint-trigger",
             serde_json::json!({
@@ -151,7 +229,59 @@ pub fn trigger_capture_and_show(app: &AppHandle) {
 }
 
 pub fn trigger_snipping_and_show(app: &AppHandle) {
-    if let Some(window) = app.get_webview_window("snipping") {
+    let Some(window) = app.get_webview_window("snipping") else {
+        return;
+    };
+
+    #[cfg(target_os = "linux")]
+    {
+        let app = app.clone();
+        tauri::async_runtime::spawn(async move {
+            match glint_core::capture_via_portal().await {
+                Ok(frame) => {
+                    let Some(window) = app.get_webview_window("snipping") else {
+                        return;
+                    };
+                    // Cover the full logical desktop; the captured image keeps
+                    // its real pixel size for the selection math.
+                    let display = window
+                        .current_monitor()
+                        .ok()
+                        .flatten()
+                        .map(|monitor| {
+                            let size = monitor.size();
+                            let pos = monitor.position();
+                            (pos.x, pos.y, size.width as i32, size.height as i32)
+                        })
+                        .unwrap_or((0, 0, 1920, 1080));
+
+                    let _ = window.set_position(PhysicalPosition::new(display.0, display.1));
+                    let _ = window.set_size(PhysicalSize::new(display.2 as u32, display.3 as u32));
+
+                    let payload = serde_json::json!({
+                        "image_data_url": frame.image_data_url,
+                        "geometry": {
+                            "x": display.0,
+                            "y": display.1,
+                            "width": frame.width,
+                            "height": frame.height
+                        },
+                        "window_title": crate::platform::get_active_window_title_opt()
+                    });
+                    let _ = window.emit("glint-snipping-capture", &payload);
+                    let _ = window.show();
+                    let _ = window.set_focus();
+                }
+                Err(err) => {
+                    eprintln!("[Glint] 截屏失败: {err}");
+                    let _ = app.emit("glint-screenshot-error", err.to_string());
+                }
+            }
+        });
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    {
         match capture::capture_screen() {
             Ok(cap) => {
                 let _ = window.set_position(PhysicalPosition::new(cap.geometry.x, cap.geometry.y));
@@ -192,7 +322,8 @@ fn submit_snipping_result(
 
     if let Some(hud_win) = app.get_webview_window("hud") {
         let (cx, cy) = get_cursor_pos();
-        position_hud_window(&hud_win, cx, cy);
+        let (w, h) = hud_outer_size(&hud_win);
+        position_hud_window(&hud_win, cx, cy, None, w, h);
         let _ = hud_win.show();
         let _ = hud_win.set_focus();
         let _ = hud_win.emit(
@@ -214,7 +345,8 @@ pub fn run() {
         .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
             if let Some(hud) = app.get_webview_window("hud") {
                 let (cx, cy) = get_cursor_pos();
-                position_hud_window(&hud, cx, cy);
+                let (w, h) = hud_outer_size(&hud);
+                position_hud_window(&hud, cx, cy, None, w, h);
                 let _ = hud.show();
                 let _ = hud.set_focus();
             }
@@ -227,13 +359,43 @@ pub fn run() {
                 let _ = hud.set_always_on_top(cfg.always_on_top);
             }
 
-            // 启动跨平台系统全局热键监听 (Windows / macOS / Linux)
+            // Windows/macOS: native hotkey loop. Linux: KGlobalAccel or the
+            // GlobalShortcuts portal, both driven from glint-core.
+            #[cfg(not(target_os = "linux"))]
             platform::spawn_global_hotkeys(
                 app.handle().clone(),
                 trigger_capture_and_show,
                 toggle_window_visibility,
                 trigger_snipping_and_show,
             );
+
+            #[cfg(target_os = "linux")]
+            {
+                let handle = app.handle().clone();
+                tauri::async_runtime::spawn(async move {
+                    let engine =
+                        glint_core::PlatformHotkeyEngine::new(GLINT_APP_ID, "Glint");
+                    let bindings = glint_core::default_bindings();
+                    let callback: glint_core::HotkeyCallback = Arc::new(move |action| {
+                        eprintln!("[Glint] hotkey action: {action:?}");
+                        match action {
+                            glint_core::HotkeyAction::SelectionCapture => {
+                                trigger_capture_and_show(&handle)
+                            }
+                            glint_core::HotkeyAction::ToggleHud => {
+                                toggle_window_visibility(&handle)
+                            }
+                            glint_core::HotkeyAction::ScreenCapture => {
+                                trigger_snipping_and_show(&handle)
+                            }
+                        }
+                    });
+
+                    if let Err(err) = engine.register(bindings, callback).await {
+                        eprintln!("[Glint] 全局热键注册失败: {err}");
+                    }
+                });
+            }
 
             // 设置系统托盘 (支持左键快速显隐、右键唤起菜单，明确定制 Tooltip 与原生图标)
             let show_i = MenuItem::with_id(app, "show", "划词透视 (Alt + Q)", true, None::<&str>)?;
@@ -295,6 +457,7 @@ pub fn run() {
             reset_hud_size,
             hide_window,
             toggle_hud_window,
+            set_hud_pinned,
             open_preferences_window,
             hide_preferences_window,
             get_app_config,
@@ -335,6 +498,7 @@ mod tests {
             api_key: Some("sk-test".to_string()),
             base_url: Some("https://api.openai.com/v1".to_string()),
             model: Some("gpt-4o".to_string()),
+            enable_tools: false,
             window_title: Some("System Architecture - PDF Reader".to_string()),
         };
 

@@ -112,24 +112,60 @@ import {
   renderCalloutWidget,
 } from "./generative-ui.ts";
 
+/**
+ * Infer a widget from the fenced block's language tag OR from its JSON shape.
+ *
+ * Models frequently emit ```json (or no tag at all) for a widget payload. The
+ * shape check keeps those payloads from degrading into a raw JSON code block:
+ * `columns` + `rows` is a comparison matrix, `steps` a flow, `items` a metric
+ * grid, and a lone `content` a callout.
+ */
+function inferWidgetType(lang: string, rawContent: string): string | null {
+  const trimmedLang = lang.trim().toLowerCase();
+  if (trimmedLang.startsWith("widget:")) {
+    const declared = trimmedLang.slice("widget:".length).trim();
+    if (declared === "timeline") return "flow";
+    if (declared === "keyvals") return "metrics";
+    return declared;
+  }
+
+  const looksLikeWidget =
+    trimmedLang === "" || trimmedLang === "json" || trimmedLang === "widget";
+  if (!looksLikeWidget) return null;
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(rawContent);
+  } catch {
+    return null;
+  }
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+    return null;
+  }
+
+  const record = parsed as Record<string, unknown>;
+  if (Array.isArray(record.columns) && Array.isArray(record.rows)) return "compare";
+  if (Array.isArray(record.steps)) return "flow";
+  if (Array.isArray(record.items)) return "metrics";
+  if (typeof record.content === "string" && typeof record.type === "string") {
+    return "callout";
+  }
+  return null;
+}
+
 function renderWidgetOrCodeBlock(lang: string, lines: string[]): string {
   const trimmedLang = lang.trim();
   const rawContent = lines.join("\n");
 
-  if (trimmedLang.startsWith("widget:")) {
-    const wType = trimmedLang.slice("widget:".length).trim().toLowerCase();
-    switch (wType) {
-      case "compare":
-        return renderCompareWidget(rawContent);
-      case "flow":
-      case "timeline":
-        return renderFlowWidget(rawContent);
-      case "metrics":
-      case "keyvals":
-        return renderMetricsWidget(rawContent);
-      case "callout":
-        return renderCalloutWidget(rawContent);
-    }
+  switch (inferWidgetType(trimmedLang, rawContent)) {
+    case "compare":
+      return renderCompareWidget(rawContent);
+    case "flow":
+      return renderFlowWidget(rawContent);
+    case "metrics":
+      return renderMetricsWidget(rawContent);
+    case "callout":
+      return renderCalloutWidget(rawContent);
   }
 
   const escapedCode = lines.map((l) => escapeHtml(l)).join("\n");

@@ -1,10 +1,5 @@
 #[cfg(target_os = "linux")]
 use std::process::Command;
-#[cfg(target_os = "linux")]
-use std::thread::sleep;
-#[cfg(target_os = "linux")]
-use std::time::Duration;
-use tauri::AppHandle;
 
 #[cfg(target_os = "linux")]
 pub fn get_cursor_position() -> (i32, i32) {
@@ -50,35 +45,6 @@ pub fn get_cursor_position() -> (i32, i32) {
     (300, 200)
 }
 
-#[cfg(target_os = "linux")]
-pub fn simulate_copy() {
-    // Linux 下 X11 原生支持 XA_PRIMARY，或通过 xdotool 模拟 Ctrl+C
-    let _ = Command::new("xdotool")
-        .args(["key", "--clearmodifiers", "ctrl+c"])
-        .output();
-    sleep(Duration::from_millis(20));
-}
-
-#[cfg(not(target_os = "linux"))]
-#[allow(dead_code)]
-pub fn simulate_copy() {}
-
-#[cfg(target_os = "linux")]
-pub fn spawn_global_hotkeys(
-    _app_handle: AppHandle,
-    _trigger_fn: fn(&AppHandle),
-    _toggle_fn: fn(&AppHandle),
-    _snipping_fn: fn(&AppHandle),
-) {
-    // Linux 全局热键线程：XGrabKey (X11) 或 org.freedesktop.portal.GlobalShortcuts (Wayland)
-    println!("[Linux] Glint hotkeys initialized for Linux");
-}
-
-#[cfg(not(target_os = "linux"))]
-#[allow(dead_code)]
-pub fn spawn_global_hotkeys(
-    _app_handle: AppHandle,
-    _trigger_fn: fn(&AppHandle),
-    _toggle_fn: fn(&AppHandle),
-    _snipping_fn: fn(&AppHandle),
-) {}
+// Intentionally no `simulate_copy` or `spawn_global_hotkeys` on Linux:
+// selection comes from `glint_core::platform_sensor()` and hotkeys from
+// `glint_core::PlatformHotkeyEngine` (KGlobalAccel / GlobalShortcuts portal).

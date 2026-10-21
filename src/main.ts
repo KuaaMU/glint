@@ -45,6 +45,7 @@ interface QueryRequest {
   base_url?: string | null;
   model?: string | null;
   window_title?: string | null;
+  enable_tools?: boolean;
 }
 
 // DOM 元素引用
@@ -174,8 +175,10 @@ async function executeExplain(
 
     if (chunk.type === "Token" && typeof chunk.data === "string") {
       pipeline.appendToken(chunk.data);
-    } else if (chunk.type === "ToolCall" && chunk.data && typeof chunk.data === "object") {
-      pipeline.mountToolCall(chunk.data as ToolCallPayload);
+    } else if (chunk.type === "ToolCall") {
+      // Tool calls are implementation detail: keep the loading indicator and
+      // never render a capsule. Users only need the answer text.
+      statusIndicator.style.display = "inline-flex";
     } else if (chunk.type === "Done") {
       statusIndicator.style.display = "none";
       const fullTurnText = pipeline.getCurrentText();
@@ -195,6 +198,8 @@ async function executeExplain(
     api_key: getStoredSetting("glint_api_key", ""),
     base_url: getStoredSetting("glint_base_url", "https://api.deepseek.com/v1"),
     model: getStoredSetting("glint_model", "deepseek-chat"),
+    // First token must not wait for a tool round-trip.
+    enable_tools: false,
     window_title: currentHostTitle,
   };
 
@@ -721,6 +726,39 @@ if (btnClearHistory) {
   });
 }
 
+// --- Pin (固定) -----------------------------------------------------------
+// A pinned card stays on screen and ignores the automatic hide that follows a
+// trigger elsewhere. State is mirrored to the shell so `toggle_hud_window` can
+// respect it, and persisted per user.
+const PIN_STORAGE_KEY = "glint_pinned";
+let isPinned = localStorage.getItem(PIN_STORAGE_KEY) === "true";
+const btnPinCard = document.getElementById("btn-pin-card") as HTMLButtonElement | null;
+
+function applyPinUI() {
+  if (!btnPinCard) return;
+  btnPinCard.setAttribute("aria-pressed", isPinned ? "true" : "false");
+  btnPinCard.title = isPinned ? "已固定（点击取消）" : "固定卡片（不自动收起）";
+  document.body.dataset.pinned = isPinned ? "true" : "false";
+}
+
+async function setPinned(next: boolean) {
+  isPinned = next;
+  localStorage.setItem(PIN_STORAGE_KEY, String(next));
+  applyPinUI();
+  if (isTauri()) {
+    try {
+      await invoke("set_hud_pinned", { pinned: next });
+    } catch (err) {
+      console.error("设置固定状态失败:", err);
+    }
+  }
+}
+
+applyPinUI();
+btnPinCard?.addEventListener("click", () => {
+  void setPinned(!isPinned);
+});
+
 // 窗口控制与快捷键
 btnCloseCard.addEventListener("click", async () => {
   if (isTauri()) {
@@ -764,6 +802,8 @@ window.addEventListener("keydown", async (e) => {
       toggleHistoryDeck(false);
       return;
     }
+    // Escape always dismisses, even when pinned — pin only suppresses
+    // automatic hiding, never an explicit user action.
     if (isTauri()) {
       await invoke("hide_window");
     }

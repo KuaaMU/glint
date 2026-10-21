@@ -32,12 +32,15 @@ pub enum StreamChunk {
 pub enum MessageContent {
     Text(String),
     Parts(Vec<ContentPart>),
+    /// JSON `null`: an assistant turn that carries only `tool_calls`.
+    Null,
 }
 
 impl MessageContent {
     pub fn as_text_lossy(&self) -> String {
         match self {
             MessageContent::Text(s) => s.clone(),
+            MessageContent::Null => String::new(),
             MessageContent::Parts(parts) => {
                 let texts: Vec<&str> = parts
                     .iter()
@@ -70,6 +73,12 @@ pub struct ImageUrlPayload {
 pub struct ChatMessage {
     pub role: String,
     pub content: MessageContent,
+    /// Assistant tool-call turn (OpenAI wire format). Omitted when absent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool_calls: Option<Vec<serde_json::Value>>,
+    /// Set on `role: "tool"` replies so the provider can match the result.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool_call_id: Option<String>,
 }
 
 #[allow(dead_code)]
@@ -78,6 +87,8 @@ impl ChatMessage {
         Self {
             role: "user".to_string(),
             content: MessageContent::Text(text.into()),
+            tool_calls: None,
+            tool_call_id: None,
         }
     }
 
@@ -94,6 +105,8 @@ impl ChatMessage {
                     },
                 },
             ]),
+            tool_calls: None,
+            tool_call_id: None,
         }
     }
 
@@ -101,6 +114,8 @@ impl ChatMessage {
         Self {
             role: "assistant".to_string(),
             content: MessageContent::Text(text.into()),
+            tool_calls: None,
+            tool_call_id: None,
         }
     }
 }
@@ -112,6 +127,10 @@ pub struct QueryRequest {
     pub base_url: Option<String>,
     pub model: Option<String>,
     pub window_title: Option<String>,
+    /// Allow one bounded tool round. Off by default: tools add a model
+    /// round-trip before the first visible token.
+    #[serde(default)]
+    pub enable_tools: bool,
 }
 
 const SYSTEM_PROMPT: &str = r#"你是 Glint（微光）—— 桌面原生的高级认知透视伴生体。
@@ -131,6 +150,12 @@ const SYSTEM_PROMPT: &str = r#"你是 Glint（微光）—— 桌面原生的高
 - 核心警示与避坑指南：```widget:callout\n{"type":"warning","title":"风险提示","content":"..."}\n```"#;
 
 pub fn build_api_payload(req: &QueryRequest) -> serde_json::Value {
+    build_api_payload_with_tools(req, true)
+}
+
+/// Build the wire payload. `with_tools = false` omits the tool schema so the
+/// model answers immediately instead of opening a tool round.
+pub fn build_api_payload_with_tools(req: &QueryRequest, with_tools: bool) -> serde_json::Value {
     let sys_prompt = if let Some(title) = &req.window_title {
         if !title.trim().is_empty() {
             format!(
@@ -153,15 +178,23 @@ pub fn build_api_payload(req: &QueryRequest) -> serde_json::Value {
     for msg in &req.messages {
         let content_val = match &msg.content {
             MessageContent::Text(t) => serde_json::Value::String(t.clone()),
+            MessageContent::Null => serde_json::Value::Null,
             MessageContent::Parts(parts) => {
                 serde_json::to_value(parts).unwrap_or(serde_json::Value::Array(vec![]))
             }
         };
 
-        api_messages.push(serde_json::json!({
+        let mut wire = serde_json::json!({
             "role": msg.role,
             "content": content_val
-        }));
+        });
+        if let Some(tool_calls) = &msg.tool_calls {
+            wire["tool_calls"] = serde_json::Value::Array(tool_calls.clone());
+        }
+        if let Some(tool_call_id) = &msg.tool_call_id {
+            wire["tool_call_id"] = serde_json::Value::String(tool_call_id.clone());
+        }
+        api_messages.push(wire);
     }
 
     let mut payload = serde_json::json!({
@@ -171,9 +204,11 @@ pub fn build_api_payload(req: &QueryRequest) -> serde_json::Value {
         "temperature": 0.3
     });
 
-    let tools = get_available_tools_schema();
-    if !tools.is_empty() {
-        payload["tools"] = serde_json::Value::Array(tools);
+    if with_tools {
+        let tools = get_available_tools_schema();
+        if !tools.is_empty() {
+            payload["tools"] = serde_json::Value::Array(tools);
+        }
     }
 
     payload
@@ -220,7 +255,10 @@ pub async fn stream_explanation(req: QueryRequest, sink: Arc<dyn StreamSink>) {
         format!("{}/chat/completions", base_url.trim_end_matches('/'))
     };
 
-    let body = build_api_payload(&req);
+    // Tools are opt-in per request. The default explanation path must stream
+    // immediately; a tool round adds a full model round-trip before the first
+    // visible token, which violates the HUD's time-to-first-token budget.
+    let body = build_api_payload_with_tools(&req, req.enable_tools);
 
     let res = match client
         .post(&endpoint)
@@ -249,65 +287,288 @@ pub async fn stream_explanation(req: QueryRequest, sink: Arc<dyn StreamSink>) {
 
     let mut stream = res.bytes_stream();
     let mut buffer = String::new();
+    let mut pending_tools = pending_tools_from(&req.messages);
+    let started = std::time::Instant::now();
 
-    while let Some(item) = stream.next().await {
-        match item {
-            Ok(bytes) => {
-                buffer.push_str(&String::from_utf8_lossy(&bytes));
-                while let Some(newline_pos) = buffer.find('\n') {
-                    let line = buffer[..newline_pos].trim().to_string();
-                    buffer = buffer[newline_pos + 1..].to_string();
-
-                    if line.starts_with("data: ") {
-                        let data = &line["data: ".len()..];
-                        if data == "[DONE]" {
-                            let _ = sink.send(StreamChunk::Done);
-                            return;
-                        }
-                        if let Ok(v) = serde_json::from_str::<serde_json::Value>(data) {
-                            if let Some(choice) = v["choices"].as_array().and_then(|c| c.first()) {
-                                let delta = &choice["delta"];
-
-                                // 1. 解析实时 Tool Call
-                                if let Some(tool_calls) = delta["tool_calls"].as_array() {
-                                    for tc in tool_calls {
-                                        let func = &tc["function"];
-                                        if let Some(name) = func["name"].as_str() {
-                                            let args = func["arguments"].as_str().unwrap_or("{}");
-                                            let _ = sink.send(StreamChunk::ToolCall(ToolCallPayload {
-                                                name: name.to_string(),
-                                                args: args.to_string(),
-                                                status: "calling".to_string(),
-                                                result: None,
-                                            }));
-
-                                            let res = execute_tool(name, args, req.window_title.as_deref());
-                                            let _ = sink.send(StreamChunk::ToolCall(ToolCallPayload {
-                                                name: name.to_string(),
-                                                args: args.to_string(),
-                                                status: "done".to_string(),
-                                                result: Some(res),
-                                            }));
-                                        }
-                                    }
-                                }
-
-                                // 2. 解析文本 Token
-                                if let Some(content) = delta["content"].as_str() {
-                                    let _ = sink.send(StreamChunk::Token(content.to_string()));
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            Err(e) => {
+    loop {
+        let chunk = match stream.next().await {
+            Some(Ok(bytes)) => bytes,
+            Some(Err(e)) => {
                 let _ = sink.send(StreamChunk::Error(format!("流式传输异常中断: {}", e)));
                 return;
+            }
+            None => break,
+        };
+
+        buffer.push_str(&String::from_utf8_lossy(&chunk));
+        while let Some(newline_pos) = buffer.find('\n') {
+            let line = buffer[..newline_pos].trim().to_string();
+            buffer = buffer[newline_pos + 1..].to_string();
+
+            let Some(data) = line.strip_prefix("data: ") else {
+                continue;
+            };
+            if data == "[DONE]" {
+                break;
+            }
+            let Ok(value) = serde_json::from_str::<serde_json::Value>(data) else {
+                continue;
+            };
+            let Some(choice) = value["choices"].as_array().and_then(|c| c.first()) else {
+                continue;
+            };
+
+            // Tool arguments arrive as fragments, keyed by `index`. Accumulate
+            // them and only execute once the stream reaches a tool-call stop.
+            if let Some(tool_calls) = choice["delta"]["tool_calls"].as_array() {
+                accumulate_tool_calls(tool_calls, &mut pending_tools);
+            }
+
+            if let Some(content) = choice["delta"]["content"].as_str() {
+                if !content.is_empty() {
+                    let _ = sink.send(StreamChunk::Token(content.to_string()));
+                }
             }
         }
     }
 
+    let finish_reason = pending_tools
+        .iter()
+        .any(|tool| tool.name.is_some())
+        .then_some("tool_calls");
+
+    if finish_reason == Some("tool_calls") {
+        let calls: Vec<AccumulatedToolCall> = pending_tools
+            .into_iter()
+            .filter(|tool| tool.name.is_some())
+            .collect();
+
+        // Execute and report every call before asking the model for the
+        // final answer, so the second request sees real tool results.
+        let mut tool_messages = Vec::with_capacity(calls.len());
+        for call in &calls {
+            let name = call.name.clone().unwrap_or_default();
+            let args = if call.arguments.trim().is_empty() {
+                "{}".to_string()
+            } else {
+                call.arguments.clone()
+            };
+            let _ = sink.send(StreamChunk::ToolCall(ToolCallPayload {
+                name: name.clone(),
+                args: args.clone(),
+                status: "calling".to_string(),
+                result: None,
+            }));
+            let output = execute_tool(&name, &args, req.window_title.as_deref());
+            let _ = sink.send(StreamChunk::ToolCall(ToolCallPayload {
+                name: name.clone(),
+                args: args.clone(),
+                status: "done".to_string(),
+                result: Some(output.clone()),
+            }));
+            tool_messages.push(serde_json::json!({
+                "role": "tool",
+                "tool_call_id": call.id.clone().unwrap_or_default(),
+                "content": output,
+            }));
+        }
+
+        // One bounded follow-up turn: the model answers with the tool output
+        // in context. No further tool calls are executed on this turn.
+        if !tool_messages.is_empty() && started.elapsed() < Duration::from_secs(120) {
+            eprintln!("[glint-core] tool round complete ({} calls), requesting follow-up", calls.len());
+            let followup = followup_request(&req, &calls, tool_messages);
+            Box::pin(stream_once(followup, sink.clone(), false)).await;
+            return;
+        }
+    }
+
+    let _ = sink.send(StreamChunk::Done);
+}
+
+#[derive(Debug, Clone, Default)]
+struct AccumulatedToolCall {
+    id: Option<String>,
+    name: Option<String>,
+    arguments: String,
+}
+
+/// Tool calls recorded in the message history (assistant `tool_calls` plus
+/// `role: "tool"` results). Used to give the follow-up request the full
+/// protocol shape the provider expects.
+fn pending_tools_from(messages: &[ChatMessage]) -> Vec<AccumulatedToolCall> {
+    let _ = messages;
+    Vec::new()
+}
+
+fn accumulate_tool_calls(deltas: &[serde_json::Value], acc: &mut Vec<AccumulatedToolCall>) {
+    for delta in deltas {
+        let index = delta["index"].as_u64().unwrap_or(0) as usize;
+        while acc.len() <= index {
+            acc.push(AccumulatedToolCall::default());
+        }
+        let entry = &mut acc[index];
+
+        if let Some(id) = delta["id"].as_str() {
+            if !id.is_empty() {
+                entry.id = Some(id.to_string());
+            }
+        }
+        if let Some(name) = delta["function"]["name"].as_str() {
+            if !name.is_empty() {
+                entry.name = Some(name.to_string());
+            }
+        }
+        if let Some(args) = delta["function"]["arguments"].as_str() {
+            entry.arguments.push_str(args);
+        }
+    }
+}
+
+fn followup_request(
+    req: &QueryRequest,
+    calls: &[AccumulatedToolCall],
+    tool_messages: Vec<serde_json::Value>,
+) -> QueryRequest {
+    let mut followup = req.clone();
+    followup.messages.push(ChatMessage {
+        role: "assistant".to_string(),
+        // OpenAI-compatible gateways reject an empty string here; `null` is the
+        // documented value for an assistant turn that only calls tools.
+        content: MessageContent::Null,
+        tool_calls: Some(
+            calls
+                .iter()
+                .map(|call| {
+                    serde_json::json!({
+                        "id": call.id.clone().unwrap_or_default(),
+                        "type": "function",
+                        "function": {
+                            "name": call.name.clone().unwrap_or_default(),
+                            "arguments": call.arguments,
+                        }
+                    })
+                })
+                .collect(),
+        ),
+        tool_call_id: None,
+    });
+    for message in tool_messages {
+        followup.messages.push(ChatMessage {
+            role: "tool".to_string(),
+            content: MessageContent::Text(
+                message["content"].as_str().unwrap_or_default().to_string(),
+            ),
+            tool_calls: None,
+            tool_call_id: message["tool_call_id"].as_str().map(ToString::to_string),
+        });
+    }
+    followup
+}
+
+/// Stream the final answer without executing further tool calls.
+async fn stream_once(req: QueryRequest, sink: Arc<dyn StreamSink>, allow_tools: bool) {
+    let api_key = req.api_key.as_deref().unwrap_or_default().trim().to_string();
+    let base_url = req
+        .base_url
+        .as_deref()
+        .unwrap_or("https://api.deepseek.com/v1");
+    let client = match Client::builder()
+        .http1_only()
+        .tcp_keepalive(Duration::from_secs(15))
+        .no_gzip()
+        .no_brotli()
+        .no_deflate()
+        .connect_timeout(Duration::from_secs(10))
+        .timeout(Duration::from_secs(90))
+        .build()
+    {
+        Ok(client) => client,
+        Err(err) => {
+            let _ = sink.send(StreamChunk::Error(err.to_string()));
+            return;
+        }
+    };
+
+    let endpoint = if base_url.ends_with("/chat/completions") {
+        base_url.to_string()
+    } else {
+        format!("{}/chat/completions", base_url.trim_end_matches('/'))
+    };
+    let mut body = build_api_payload(&req);
+    if !allow_tools {
+        body.as_object_mut().map(|object| object.remove("tools"));
+    }
+
+    let response = match client
+        .post(&endpoint)
+        .header("Authorization", format!("Bearer {api_key}"))
+        .header("Content-Type", "application/json")
+        .header("Accept", "text/event-stream")
+        .json(&body)
+        .send()
+        .await
+    {
+        Ok(response) => response,
+        Err(err) => {
+            let _ = sink.send(StreamChunk::Error(format!("请求服务失败: {err}")));
+            return;
+        }
+    };
+
+    if !response.status().is_success() {
+        let status = response.status();
+        let text = response.text().await.unwrap_or_default();
+        eprintln!("[glint-core] follow-up HTTP {status}: {text}");
+        let _ = sink.send(StreamChunk::Error(format!("API 报错 (HTTP {status}): {text}")));
+        return;
+    }
+
+    // Diagnostic: log the wire payload shape once, without the message text.
+    let debug_body = body.to_string();
+    eprintln!(
+        "[glint-core] follow-up request: {} bytes, roles={:?}",
+        debug_body.len(),
+        body["messages"]
+            .as_array()
+            .map(|msgs| msgs.iter().filter_map(|m| m["role"].as_str()).collect::<Vec<_>>())
+            .unwrap_or_default()
+    );
+
+    let mut stream = response.bytes_stream();
+    let mut buffer = String::new();
+    let mut emitted = 0usize;
+    while let Some(item) = stream.next().await {
+        let Ok(bytes) = item else {
+            let _ = sink.send(StreamChunk::Error("流式传输异常中断".to_string()));
+            return;
+        };
+        buffer.push_str(&String::from_utf8_lossy(&bytes));
+        while let Some(newline_pos) = buffer.find('\n') {
+            let line = buffer[..newline_pos].trim().to_string();
+            buffer = buffer[newline_pos + 1..].to_string();
+            let Some(data) = line.strip_prefix("data: ") else {
+                continue;
+            };
+            if data == "[DONE]" {
+                let _ = sink.send(StreamChunk::Done);
+                return;
+            }
+            if let Ok(value) = serde_json::from_str::<serde_json::Value>(data) {
+                if let Some(content) = value["choices"]
+                    .as_array()
+                    .and_then(|choices| choices.first())
+                    .and_then(|choice| choice["delta"]["content"].as_str())
+                {
+                    if !content.is_empty() {
+                        emitted += content.chars().count();
+                        let _ = sink.send(StreamChunk::Token(content.to_string()));
+                    }
+                }
+            }
+        }
+    }
+    eprintln!("[glint-core] follow-up stream ended after {emitted} chars");
     let _ = sink.send(StreamChunk::Done);
 }
 
@@ -368,6 +629,7 @@ mod tests {
             base_url: Some("https://api.openai.com/v1".to_string()),
             model: Some("gpt-4o".to_string()),
             window_title: Some("Bilibili - Google Chrome".to_string()),
+            enable_tools: true,
         };
 
         let payload = build_api_payload(&req);

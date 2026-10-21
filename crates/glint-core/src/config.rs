@@ -36,19 +36,26 @@ impl Default for AppConfig {
     }
 }
 
-/// XDG config path used by the CLI and tests.
+/// The application identifier used by Tauri, the portal, and the config dir.
+pub const APP_ID: &str = "com.glint.desktop";
+
+/// XDG config path shared by the CLI, the Tauri shell, and tests.
 ///
-/// The Tauri shell should keep using its own `app_config_dir()` and call
-/// `load_config(path)` / `save_config(path, cfg)` directly.
+/// Tauri's `app_config_dir()` resolves to `$XDG_CONFIG_HOME/<identifier>`, so
+/// the headless tools must use the same directory or they silently read an
+/// empty config while the GUI has a working key.
 pub fn default_config_path() -> PathBuf {
     if let Ok(xdg) = std::env::var("XDG_CONFIG_HOME") {
         if !xdg.trim().is_empty() {
-            return PathBuf::from(xdg).join("glint").join("config.json");
+            return PathBuf::from(xdg).join(APP_ID).join("config.json");
         }
     }
     if let Ok(home) = std::env::var("HOME") {
         if !home.trim().is_empty() {
-            return PathBuf::from(home).join(".config").join("glint").join("config.json");
+            return PathBuf::from(home)
+                .join(".config")
+                .join(APP_ID)
+                .join("config.json");
         }
     }
     PathBuf::from("glint_config.json")
@@ -95,6 +102,11 @@ mod tests {
         let serialized = serde_json::to_string(&cfg).unwrap();
         let deserialized: AppConfig = serde_json::from_str(&serialized).unwrap();
         assert_eq!(cfg, deserialized);
+    }
+
+    #[test]
+    fn default_config_path_matches_the_tauri_app_id() {
+        assert!(default_config_path().ends_with("com.glint.desktop/config.json"));
     }
 
     #[test]

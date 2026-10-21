@@ -23,7 +23,7 @@ pub fn get_cursor_position() -> (i32, i32) {
 pub fn get_active_window_title() -> String {
     unsafe {
         let hwnd = foreground_window();
-        if hwnd == 0 as _ {
+        if hwnd.is_null() {
             return String::new();
         }
         window_text(hwnd)
@@ -48,7 +48,7 @@ pub fn get_active_window_identity() -> glint_core::HostIdentity {
 
     unsafe {
         let hwnd = GetForegroundWindow();
-        if hwnd == 0 as _ {
+        if hwnd.is_null() {
             return glint_core::HostIdentity::default();
         }
 
@@ -61,7 +61,7 @@ pub fn get_active_window_identity() -> glint_core::HostIdentity {
         }
 
         let process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
-        if process == 0 as _ {
+        if process.is_null() {
             return glint_core::HostIdentity::new("", Some(title).filter(|t| !t.is_empty()));
         }
 
@@ -91,16 +91,16 @@ pub fn get_active_window_identity() -> glint_core::HostIdentity {
 }
 
 #[cfg(target_os = "windows")]
-unsafe fn foreground_window() -> isize {
+unsafe fn foreground_window() -> windows_sys::Win32::Foundation::HWND {
     use windows_sys::Win32::UI::WindowsAndMessaging::GetForegroundWindow;
-    unsafe { GetForegroundWindow() as isize }
+    unsafe { GetForegroundWindow() }
 }
 
 #[cfg(target_os = "windows")]
-unsafe fn window_text(hwnd: isize) -> String {
+unsafe fn window_text(hwnd: windows_sys::Win32::Foundation::HWND) -> String {
     use windows_sys::Win32::UI::WindowsAndMessaging::GetWindowTextW;
     let mut buf = [0u16; 512];
-    let len = unsafe { GetWindowTextW(hwnd as _, buf.as_mut_ptr(), 512) };
+    let len = unsafe { GetWindowTextW(hwnd, buf.as_mut_ptr(), 512) };
     if len > 0 {
         String::from_utf16_lossy(&buf[..len as usize])
             .trim()

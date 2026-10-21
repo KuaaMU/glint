@@ -54,6 +54,7 @@ fn png_dimensions(bytes: &[u8]) -> Option<(u32, u32)> {
 
 /// Decode `%XX` escapes in a `file://` URI path. Paths with spaces are common
 /// for portal screenshots, so this cannot be skipped.
+#[cfg(any(target_os = "linux", test))]
 fn percent_decode(input: &str) -> String {
     let bytes = input.as_bytes();
     let mut out = Vec::with_capacity(bytes.len());

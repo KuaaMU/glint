@@ -7,6 +7,7 @@
 
 use std::sync::Arc;
 
+#[cfg(target_os = "linux")]
 use crate::session::is_kde;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -421,6 +422,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(target_os = "linux")]
     fn kglobalaccel_component_never_ends_in_desktop() {
         assert_eq!(
             linux::KGlobalAccelEngine::component_id_for("com.glint.desktop"),

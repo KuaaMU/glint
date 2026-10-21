@@ -1,5 +1,6 @@
 import path from "node:path";
 import { execSync } from "node:child_process";
+import { SKIP_SHELL } from "./test_config.mjs";
 import { TestRegistry, assert } from "./helpers/test_assert.mjs";
 import {
   renderSafeMarkdownOracle,
@@ -154,5 +155,6 @@ tier4Suite.test(
       encoding: "utf-8",
     });
     assert.match(npmOut, /built in/i);
-  }
+  },
+  { skip: SKIP_SHELL }
 );

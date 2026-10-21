@@ -26,6 +26,7 @@ import {
   README_PATH,
   GLINT_HUD_DIR,
   CONSTANTS,
+  SKIP_SHELL,
 } from "./test_config.mjs";
 
 export const tier1Suite = new TestRegistry("Tier 1: Feature Coverage (F1 - F18)");
@@ -973,7 +974,7 @@ tier1Suite.test(
     });
     assert.match(out, /test tests::test_multimodal_multi_turn_payload_generation \.\.\. ok/);
   },
-  { milestone: "M3", feature: "F15" }
+  { milestone: "M3", skip: SKIP_SHELL, feature: "F15" }
 );
 
 tier1Suite.test(
@@ -1128,7 +1129,7 @@ tier1Suite.test(
     });
     assert.match(out, /\d+ passed; 0 failed/);
   },
-  { milestone: "M4", feature: "F18" }
+  { milestone: "M4", skip: SKIP_SHELL, feature: "F18" }
 );
 
 tier1Suite.test(

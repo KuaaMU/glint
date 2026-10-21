@@ -7,6 +7,7 @@
 
 use std::time::Instant;
 
+#[cfg(target_os = "linux")]
 use crate::session::{SessionType, detect_session};
 
 /// Hard cap on the bytes read from the selection owner.

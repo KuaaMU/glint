@@ -4,7 +4,6 @@ use std::process::Command;
 use std::thread::sleep;
 #[cfg(target_os = "macos")]
 use std::time::Duration;
-use tauri::AppHandle;
 
 #[cfg(target_os = "macos")]
 pub fn get_cursor_position() -> (i32, i32) {
@@ -71,23 +70,3 @@ pub fn simulate_copy() {
 #[cfg(not(target_os = "macos"))]
 #[allow(dead_code)]
 pub fn simulate_copy() {}
-
-#[cfg(target_os = "macos")]
-pub fn spawn_global_hotkeys(
-    app_handle: AppHandle,
-    _trigger_fn: fn(&AppHandle),
-    _toggle_fn: fn(&AppHandle),
-    _snipping_fn: fn(&AppHandle),
-) {
-    // macOS 全局热键挂载 (Cmd+Option+Q, Cmd+Option+D, Cmd+Option+W)
-    println!("[macOS] Glint hotkeys initialized for macOS");
-}
-
-#[cfg(not(target_os = "macos"))]
-#[allow(dead_code)]
-pub fn spawn_global_hotkeys(
-    _app_handle: AppHandle,
-    _trigger_fn: fn(&AppHandle),
-    _toggle_fn: fn(&AppHandle),
-    _snipping_fn: fn(&AppHandle),
-) {}

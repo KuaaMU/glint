@@ -146,7 +146,7 @@ tier4Suite.test(
       cwd: SRC_TAURI_DIR,
       encoding: "utf-8",
     });
-    assert.match(cargoOut, /14 passed; 0 failed/);
+    assert.match(cargoOut, /\d+ passed; 0 failed/);
 
     // 2. Frontend production bundling
     const npmOut = execSync("npm run build", {

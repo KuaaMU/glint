@@ -268,10 +268,9 @@ pub fn run() {
                     _ => {}
                 });
 
-            let app_icon = app.default_window_icon().cloned().or_else(|| {
-                tauri::image::Image::from_app_icon_resource(32).ok()
-            });
-            if let Some(icon) = app_icon {
+            // Tauri 2 removed `Image::from_app_icon_resource`; use the bundled
+            // window icon and let the platform fall back to its default if absent.
+            if let Some(icon) = app.default_window_icon().cloned() {
                 tray_builder = tray_builder.icon(icon);
             }
 

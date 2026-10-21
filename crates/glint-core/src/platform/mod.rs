@@ -2,8 +2,6 @@ pub mod windows;
 pub mod macos;
 pub mod linux;
 
-use tauri::AppHandle;
-
 /// 获取当前鼠标光标物理屏幕坐标
 pub fn get_cursor_position() -> (i32, i32) {
     #[cfg(target_os = "windows")]
@@ -80,26 +78,5 @@ pub fn simulate_copy() {
     #[cfg(target_os = "linux")]
     {
         linux::simulate_copy();
-    }
-}
-
-/// 注册跨平台全局监听热键
-pub fn spawn_global_hotkeys(
-    app_handle: AppHandle,
-    trigger_fn: fn(&AppHandle),
-    toggle_fn: fn(&AppHandle),
-    snipping_fn: fn(&AppHandle),
-) {
-    #[cfg(target_os = "windows")]
-    {
-        windows::spawn_global_hotkeys(app_handle, trigger_fn, toggle_fn, snipping_fn);
-    }
-    #[cfg(target_os = "macos")]
-    {
-        macos::spawn_global_hotkeys(app_handle, trigger_fn, toggle_fn, snipping_fn);
-    }
-    #[cfg(target_os = "linux")]
-    {
-        linux::spawn_global_hotkeys(app_handle, trigger_fn, toggle_fn, snipping_fn);
     }
 }

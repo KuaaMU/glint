@@ -269,7 +269,10 @@ export function renderSafeMarkdown(markdown: string): string {
   for (let i = 0; i < processedBlocks.length; i++) {
     const part = processedBlocks[i];
     if (part === "") {
-      html += "<br/>";
+      // A leading blank line is an artifact of splitting a string that starts
+      // with "\n", not a visual line break. Emitting it would make
+      // renderSafeMarkdown("\n") produce two <br/> instead of the contracted one.
+      if (i > 0) html += "<br/>";
       continue;
     }
 

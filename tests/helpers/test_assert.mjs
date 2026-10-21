@@ -28,6 +28,16 @@ export class TestRegistry {
         continue;
       }
 
+      // Explicit skip: used for contract tests whose target does not exist yet,
+      // and for placeholder tests that do not exercise a real runtime surface.
+      if (testCase.options.skip) {
+        this.skipped++;
+        if (verbose) {
+          console.log(`  [SKIP] ${testCase.description} (${testCase.options.skip})`);
+        }
+        continue;
+      }
+
       try {
         const caseStart = Date.now();
         await testCase.fn();

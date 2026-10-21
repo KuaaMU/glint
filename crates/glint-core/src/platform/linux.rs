@@ -4,7 +4,6 @@ use std::process::Command;
 use std::thread::sleep;
 #[cfg(target_os = "linux")]
 use std::time::Duration;
-use tauri::AppHandle;
 
 #[cfg(target_os = "linux")]
 pub fn get_cursor_position() -> (i32, i32) {
@@ -62,23 +61,3 @@ pub fn simulate_copy() {
 #[cfg(not(target_os = "linux"))]
 #[allow(dead_code)]
 pub fn simulate_copy() {}
-
-#[cfg(target_os = "linux")]
-pub fn spawn_global_hotkeys(
-    app_handle: AppHandle,
-    _trigger_fn: fn(&AppHandle),
-    _toggle_fn: fn(&AppHandle),
-    _snipping_fn: fn(&AppHandle),
-) {
-    // Linux 全局热键线程：XGrabKey (X11) 或 org.freedesktop.portal.GlobalShortcuts (Wayland)
-    println!("[Linux] Glint hotkeys initialized for Linux");
-}
-
-#[cfg(not(target_os = "linux"))]
-#[allow(dead_code)]
-pub fn spawn_global_hotkeys(
-    _app_handle: AppHandle,
-    _trigger_fn: fn(&AppHandle),
-    _toggle_fn: fn(&AppHandle),
-    _snipping_fn: fn(&AppHandle),
-) {}

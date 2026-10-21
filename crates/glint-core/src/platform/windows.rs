@@ -2,8 +2,6 @@
 use std::thread::sleep;
 #[cfg(target_os = "windows")]
 use std::time::Duration;
-#[cfg(target_os = "windows")]
-use tauri::AppHandle;
 
 #[cfg(target_os = "windows")]
 pub fn get_cursor_position() -> (i32, i32) {

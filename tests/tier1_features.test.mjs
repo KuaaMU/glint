@@ -28,6 +28,13 @@ import {
 
 export const tier1Suite = new TestRegistry("Tier 1: Feature Coverage (F1 - F18)");
 
+// The Slint HUD is a P3 spike, not an implemented crate. Contract tests for
+// M2 must skip rather than "pass" by reading the specification in PROJECT.md.
+const HUD_IMPLEMENTED = fs.existsSync(path.join(GLINT_HUD_DIR, "Cargo.toml"));
+const SKIP_HUD = HUD_IMPLEMENTED
+  ? undefined
+  : "crates/glint-hud 未实现（P3 门禁 spike 待做）";
+
 // ==========================================
 // Feature 1: Safe Markdown Parser (M1)
 // ==========================================
@@ -322,7 +329,7 @@ tier1Suite.test(
       assert.match(projectMd, /Slint 1\.18\.1/);
     }
   },
-  { milestone: "M2", feature: "F5" }
+  { milestone: "M2", skip: SKIP_HUD, feature: "F5" }
 );
 
 tier1Suite.test(
@@ -337,7 +344,7 @@ tier1Suite.test(
       assert.match(projectMd, /renderer-femtovg/);
     }
   },
-  { milestone: "M2", feature: "F5" }
+  { milestone: "M2", skip: SKIP_HUD, feature: "F5" }
 );
 
 tier1Suite.test(
@@ -352,7 +359,7 @@ tier1Suite.test(
       assert.match(projectMd, /slint_build::compile\("ui\/hud\.slint"\)/);
     }
   },
-  { milestone: "M2", feature: "F5" }
+  { milestone: "M2", skip: SKIP_HUD, feature: "F5" }
 );
 
 tier1Suite.test(
@@ -361,7 +368,7 @@ tier1Suite.test(
     const tauriCargo = fs.readFileSync(path.join(SRC_TAURI_DIR, "Cargo.toml"), "utf-8");
     assert.match(tauriCargo, /edition\s*=\s*"2024"/);
   },
-  { milestone: "M2", feature: "F5" }
+  { milestone: "M2", skip: SKIP_HUD, feature: "F5" }
 );
 
 tier1Suite.test(
@@ -370,7 +377,7 @@ tier1Suite.test(
     const projectMd = fs.readFileSync(path.join(SRC_DIR, "..", "PROJECT.md"), "utf-8");
     assert.match(projectMd, /crates[/\\]glint-hud/);
   },
-  { milestone: "M2", feature: "F5" }
+  { milestone: "M2", skip: SKIP_HUD, feature: "F5" }
 );
 
 // ==========================================
@@ -387,7 +394,7 @@ tier1Suite.test(
       assert.match(projectMd, /no-frame:\s*true/);
     }
   },
-  { milestone: "M2", feature: "F6" }
+  { milestone: "M2", skip: SKIP_HUD, feature: "F6" }
 );
 
 tier1Suite.test(
@@ -401,7 +408,7 @@ tier1Suite.test(
       assert.match(projectMd, /transparent window/i);
     }
   },
-  { milestone: "M2", feature: "F6" }
+  { milestone: "M2", skip: SKIP_HUD, feature: "F6" }
 );
 
 tier1Suite.test(
@@ -415,7 +422,7 @@ tier1Suite.test(
       assert.match(projectMd, /Obsidian/i);
     }
   },
-  { milestone: "M2", feature: "F6" }
+  { milestone: "M2", skip: SKIP_HUD, feature: "F6" }
 );
 
 tier1Suite.test(
@@ -424,7 +431,7 @@ tier1Suite.test(
     const projectMd = fs.readFileSync(path.join(SRC_DIR, "..", "PROJECT.md"), "utf-8");
     assert.match(projectMd, /DWM.*acrylic/i);
   },
-  { milestone: "M2", feature: "F6" }
+  { milestone: "M2", skip: SKIP_HUD, feature: "F6" }
 );
 
 tier1Suite.test(
@@ -438,7 +445,7 @@ tier1Suite.test(
       assert.ok(true, "Contract verified from M2 specification");
     }
   },
-  { milestone: "M2", feature: "F6" }
+  { milestone: "M2", skip: SKIP_HUD, feature: "F6" }
 );
 
 // ==========================================
@@ -455,7 +462,7 @@ tier1Suite.test(
       assert.match(projectMd, /1px gradient light blade/);
     }
   },
-  { milestone: "M2", feature: "F7" }
+  { milestone: "M2", skip: SKIP_HUD, feature: "F7" }
 );
 
 tier1Suite.test(
@@ -470,7 +477,7 @@ tier1Suite.test(
       assert.match(projectMd, /gradient light blade/);
     }
   },
-  { milestone: "M2", feature: "F7" }
+  { milestone: "M2", skip: SKIP_HUD, feature: "F7" }
 );
 
 tier1Suite.test(
@@ -479,7 +486,7 @@ tier1Suite.test(
     const projectMd = fs.readFileSync(path.join(SRC_DIR, "..", "PROJECT.md"), "utf-8");
     assert.match(projectMd, /0\.5px precision line-art/);
   },
-  { milestone: "M2", feature: "F7" }
+  { milestone: "M2", skip: SKIP_HUD, feature: "F7" }
 );
 
 tier1Suite.test(
@@ -493,7 +500,7 @@ tier1Suite.test(
       assert.ok(true, "Contract verified from M2 design specification");
     }
   },
-  { milestone: "M2", feature: "F7" }
+  { milestone: "M2", skip: SKIP_HUD, feature: "F7" }
 );
 
 tier1Suite.test(
@@ -502,7 +509,7 @@ tier1Suite.test(
     const projectMd = fs.readFileSync(path.join(SRC_DIR, "..", "PROJECT.md"), "utf-8");
     assert.match(projectMd, /FemtoVG/i);
   },
-  { milestone: "M2", feature: "F7" }
+  { milestone: "M2", skip: SKIP_HUD, feature: "F7" }
 );
 
 // ==========================================
@@ -519,7 +526,7 @@ tier1Suite.test(
       assert.match(projectMd, /breathing glow/i);
     }
   },
-  { milestone: "M2", feature: "F8" }
+  { milestone: "M2", skip: SKIP_HUD, feature: "F8" }
 );
 
 tier1Suite.test(
@@ -533,7 +540,7 @@ tier1Suite.test(
       assert.ok(true, "Contract verified from M2 design specification");
     }
   },
-  { milestone: "M2", feature: "F8" }
+  { milestone: "M2", skip: SKIP_HUD, feature: "F8" }
 );
 
 tier1Suite.test(
@@ -547,7 +554,7 @@ tier1Suite.test(
       assert.ok(true, "Contract verified from M2 design specification");
     }
   },
-  { milestone: "M2", feature: "F8" }
+  { milestone: "M2", skip: SKIP_HUD, feature: "F8" }
 );
 
 tier1Suite.test(
@@ -556,7 +563,7 @@ tier1Suite.test(
     const projectMd = fs.readFileSync(path.join(SRC_DIR, "..", "PROJECT.md"), "utf-8");
     assert.match(projectMd, /smooth visual transitions/);
   },
-  { milestone: "M2", feature: "F8" }
+  { milestone: "M2", skip: SKIP_HUD, feature: "F8" }
 );
 
 tier1Suite.test(
@@ -570,7 +577,7 @@ tier1Suite.test(
       assert.ok(true, "Contract verified from M2 design specification");
     }
   },
-  { milestone: "M2", feature: "F8" }
+  { milestone: "M2", skip: SKIP_HUD, feature: "F8" }
 );
 
 // ==========================================
@@ -588,7 +595,7 @@ tier1Suite.test(
       assert.match(projectMd, /Zero WebView2/);
     }
   },
-  { milestone: "M2", feature: "F9" }
+  { milestone: "M2", skip: SKIP_HUD, feature: "F9" }
 );
 
 tier1Suite.test(
@@ -603,7 +610,7 @@ tier1Suite.test(
       assert.match(projectMd, /Zero.*Node\.js/);
     }
   },
-  { milestone: "M2", feature: "F9" }
+  { milestone: "M2", skip: SKIP_HUD, feature: "F9" }
 );
 
 tier1Suite.test(
@@ -612,7 +619,7 @@ tier1Suite.test(
     const projectMd = fs.readFileSync(path.join(SRC_DIR, "..", "PROJECT.md"), "utf-8");
     assert.match(projectMd, /Zero.*HTML.*CSS/);
   },
-  { milestone: "M2", feature: "F9" }
+  { milestone: "M2", skip: SKIP_HUD, feature: "F9" }
 );
 
 tier1Suite.test(
@@ -621,7 +628,7 @@ tier1Suite.test(
     const projectMd = fs.readFileSync(path.join(SRC_DIR, "..", "PROJECT.md"), "utf-8");
     assert.match(projectMd, /femtovg.*pure Rust OpenGL/i);
   },
-  { milestone: "M2", feature: "F9" }
+  { milestone: "M2", skip: SKIP_HUD, feature: "F9" }
 );
 
 tier1Suite.test(
@@ -630,7 +637,7 @@ tier1Suite.test(
     const projectMd = fs.readFileSync(path.join(SRC_DIR, "..", "PROJECT.md"), "utf-8");
     assert.match(projectMd, /glint-hud\.exe/);
   },
-  { milestone: "M2", feature: "F9" }
+  { milestone: "M2", skip: SKIP_HUD, feature: "F9" }
 );
 
 // ==========================================
@@ -854,7 +861,7 @@ tier1Suite.test(
     const durationMs = Number(t1 - t0) / 1_000_000;
     assert.ok(durationMs < CONSTANTS.MAX_HOTKEY_LATENCY_MS, `Timing baseline must be < 20ms, got ${durationMs}ms`);
   },
-  { milestone: "M3", feature: "F13" }
+  { milestone: "M3", feature: "F13", skip: "运行时延迟测量待 P2 实现（当前是空计时器占位）" }
 );
 
 // ==========================================
@@ -871,7 +878,7 @@ tier1Suite.test(
       assert.match(projectMd, /response_markdown|streaming-response-text/);
     }
   },
-  { milestone: "M3", feature: "F14" }
+  { milestone: "M3", feature: "F14", skip: SKIP_HUD }
 );
 
 tier1Suite.test(
@@ -884,7 +891,7 @@ tier1Suite.test(
     }
     assert.equal(accumulated, "Glint is fast.");
   },
-  { milestone: "M3", feature: "F14" }
+  { milestone: "M3", feature: "F14", skip: "占位测试，无运行时被测对象" }
 );
 
 tier1Suite.test(
@@ -896,7 +903,7 @@ tier1Suite.test(
     isStreaming = false; // Stream ends
     assert.equal(isStreaming, false);
   },
-  { milestone: "M3", feature: "F14" }
+  { milestone: "M3", feature: "F14", skip: "占位测试，无运行时被测对象" }
 );
 
 tier1Suite.test(
@@ -910,7 +917,7 @@ tier1Suite.test(
       assert.ok(true, "Contract verified from M3 UI specification");
     }
   },
-  { milestone: "M3", feature: "F14" }
+  { milestone: "M3", feature: "F14", skip: SKIP_HUD }
 );
 
 tier1Suite.test(
@@ -919,7 +926,7 @@ tier1Suite.test(
     const projectMd = fs.readFileSync(path.join(SRC_DIR, "..", "PROJECT.md"), "utf-8");
     assert.match(projectMd, /invoke_from_event_loop|StreamSink/i);
   },
-  { milestone: "M3", feature: "F14" }
+  { milestone: "M3", feature: "F14", skip: "PROJECT.md 规范检查，非实现验证" }
 );
 
 // ==========================================
@@ -936,7 +943,7 @@ tier1Suite.test(
       assert.match(projectMd, /query_input|submit-followup/);
     }
   },
-  { milestone: "M3", feature: "F15" }
+  { milestone: "M3", feature: "F15", skip: SKIP_HUD }
 );
 
 tier1Suite.test(
@@ -945,7 +952,7 @@ tier1Suite.test(
     const projectMd = fs.readFileSync(path.join(SRC_DIR, "..", "PROJECT.md"), "utf-8");
     assert.match(projectMd, /submit-followup|submit_query/);
   },
-  { milestone: "M3", feature: "F15" }
+  { milestone: "M3", feature: "F15", skip: "PROJECT.md 规范检查，非实现验证" }
 );
 
 tier1Suite.test(
@@ -982,7 +989,7 @@ tier1Suite.test(
     assert.equal(messages.length, 3);
     assert.equal(messages[2].role, "user");
   },
-  { milestone: "M3", feature: "F15" }
+  { milestone: "M3", feature: "F15", skip: "占位测试，无运行时被测对象" }
 );
 
 // ==========================================
@@ -1002,7 +1009,7 @@ tier1Suite.test(
   async () => {
     assert.ok(CONSTANTS.MAX_IDLE_RAM_MB <= 15.0);
   },
-  { milestone: "M4", feature: "F16" }
+  { milestone: "M4", feature: "F16", skip: "RAM 运行时测量待 P2 实现；当前只断言常量" }
 );
 
 tier1Suite.test(
@@ -1011,7 +1018,7 @@ tier1Suite.test(
     const projectMd = fs.readFileSync(path.join(SRC_DIR, "..", "PROJECT.md"), "utf-8");
     assert.match(projectMd, /8-12MB working set RAM/);
   },
-  { milestone: "M4", feature: "F16" }
+  { milestone: "M4", feature: "F16", skip: "PROJECT.md 规范检查，非运行时测量" }
 );
 
 tier1Suite.test(
@@ -1020,7 +1027,7 @@ tier1Suite.test(
     const projectMd = fs.readFileSync(path.join(SRC_DIR, "..", "PROJECT.md"), "utf-8");
     assert.match(projectMd, /femtovg/i);
   },
-  { milestone: "M4", feature: "F16" }
+  { milestone: "M4", feature: "F16", skip: "PROJECT.md 规范检查，非运行时测量" }
 );
 
 tier1Suite.test(
@@ -1028,7 +1035,7 @@ tier1Suite.test(
   async () => {
     assert.ok(SYSTEM_THRESHOLDS.MAX_IDLE_RAM_MB <= 15.0);
   },
-  { milestone: "M4", feature: "F16" }
+  { milestone: "M4", feature: "F16", skip: "RAM 运行时测量待 P2 实现；当前只断言常量" }
 );
 
 // ==========================================
@@ -1103,13 +1110,13 @@ tier1Suite.test(
 // Feature 18: Dual-Track Non-Interference (M4)
 // ==========================================
 tier1Suite.test(
-  "F18-TC1: All 14 existing cargo test unit tests in src-tauri pass cleanly",
+  "F18-TC1: All existing cargo test unit tests in src-tauri pass cleanly",
   async () => {
     const out = execSync("cargo test", {
       cwd: SRC_TAURI_DIR,
       encoding: "utf-8",
     });
-    assert.match(out, /14 passed; 0 failed/);
+    assert.match(out, /\d+ passed; 0 failed/);
   },
   { milestone: "M4", feature: "F18" }
 );

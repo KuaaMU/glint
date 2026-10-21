@@ -17,7 +17,7 @@
         "label": "hud",
         "url": "index.html",
         "width": 440,
-        "height": 380,
+        "height": 560,
         "decorations": false,
         "transparent": true,
         "alwaysOnTop": true,

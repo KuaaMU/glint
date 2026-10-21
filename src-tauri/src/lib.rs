@@ -23,6 +23,11 @@ use tauri::{
 
 const GLINT_APP_ID: &str = "com.glint.desktop";
 
+/// Default companion card size (logical pixels). Tall enough for ~12 lines of
+/// answer plus the follow-up bar, while staying compact next to a selection.
+const CARD_W: f64 = 440.0;
+const CARD_H: f64 = 560.0;
+
 #[tauri::command]
 fn get_selection() -> Option<SelectionResult> {
     capture_selected_text()
@@ -101,20 +106,31 @@ pub fn position_hud_window(
     // Verify the compositor honoured the move. Under a native Wayland toplevel
     // this is silently ignored; the card would then open wherever the
     // compositor likes (usually centre), which is exactly what we must avoid.
-    // Only meaningful once mapped; callers invoke this after `show()`.
-    if window.is_visible().unwrap_or(false) {
-        if let Ok(actual) = window.outer_position() {
-            let dx = (actual.x - target.x).abs();
-            let dy = (actual.y - target.y).abs();
-            if dx > 4 || dy > 4 {
-                eprintln!(
-                    "[Glint] placement not honoured: wanted ({}, {}), got ({}, {}); \
-                     run with GDK_BACKEND=x11 for cursor-adjacent placement",
-                    target.x, target.y, actual.x, actual.y
-                );
-            }
+    //
+    // The position is only valid after the surface is mapped, so read it back
+    // on a short delayed task rather than immediately: a fresh WebKitGTK
+    // window reports (0, 0) until its first frame is committed.
+    let window = window.clone();
+    tauri::async_runtime::spawn(async move {
+        tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+        if !window.is_visible().unwrap_or(false) {
+            return;
         }
-    }
+        let Ok(actual) = window.outer_position() else {
+            return;
+        };
+        let dx = (actual.x - target.x).abs();
+        let dy = (actual.y - target.y).abs();
+        if dx > 8 || dy > 8 {
+            eprintln!(
+                "[Glint] placement not honoured: wanted ({}, {}), got ({}, {}); \
+                 run with GDK_BACKEND=x11 for cursor-adjacent placement",
+                target.x, target.y, actual.x, actual.y
+            );
+        } else {
+            eprintln!("[Glint] placement honoured at ({}, {})", actual.x, actual.y);
+        }
+    });
 }
 
 /// Current outer size in physical pixels, defaulting to the configured card.
@@ -124,8 +140,8 @@ fn hud_outer_size(window: &WebviewWindow) -> (i32, i32) {
         _ => {
             let scale = window.scale_factor().unwrap_or(1.0);
             (
-                (440.0 * scale).round() as i32,
-                (380.0 * scale).round() as i32,
+                (CARD_W as f64 * scale).round() as i32,
+                (CARD_H as f64 * scale).round() as i32,
             )
         }
     }
@@ -153,7 +169,7 @@ fn resize_hud_window(app: AppHandle, width: f64, height: f64) {
 #[tauri::command]
 fn reset_hud_size(app: AppHandle) {
     if let Some(window) = app.get_webview_window("hud") {
-        let _ = window.set_size(LogicalSize::new(440.0, 380.0));
+        let _ = window.set_size(LogicalSize::new(CARD_W, CARD_H));
     }
 }
 
@@ -176,9 +192,20 @@ fn hud_is_pinned() -> bool {
 /// after `show()`.
 fn prepare_hud(window: &WebviewWindow, cursor_x: i32, cursor_y: i32) {
     if !hud_is_pinned() {
-        if let Err(err) = window.set_size(LogicalSize::new(440.0, 380.0)) {
+        if let Err(err) = window.set_size(LogicalSize::new(CARD_W, CARD_H)) {
             eprintln!("[Glint] set_size failed: {err}");
         }
+        // A window created hidden keeps a 0x0 surface until it is shown; the
+        // size reported right here is not the size it will get. Re-apply the
+        // size after mapping so the card never opens as a thin strip.
+        let handle = window.clone();
+        tauri::async_runtime::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_millis(80)).await;
+            if handle.is_visible().unwrap_or(false) {
+                let _ = handle.set_size(LogicalSize::new(CARD_W, CARD_H));
+                eprintln!("[Glint] post-show size {:?}", handle.outer_size());
+            }
+        });
     }
     let (w, h) = hud_outer_size(window);
     position_hud_window(window, cursor_x, cursor_y, None, w, h);

@@ -106,7 +106,7 @@ pub fn simulate_copy() {}
 
 #[cfg(target_os = "macos")]
 pub fn spawn_global_hotkeys(
-    app_handle: AppHandle,
+    _app_handle: AppHandle,
     _trigger_fn: fn(&AppHandle),
     _toggle_fn: fn(&AppHandle),
     _snipping_fn: fn(&AppHandle),

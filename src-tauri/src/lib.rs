@@ -13,6 +13,7 @@ use preferences::{
     fetch_models, get_app_config, hide_preferences_window, open_preferences_window,
     test_llm_connection, update_app_config,
 };
+#[cfg(target_os = "linux")]
 use std::sync::Arc;
 use tauri::{
     AppHandle, Emitter, LogicalSize, Manager, PhysicalPosition, PhysicalSize, WebviewWindow,

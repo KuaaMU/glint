@@ -106,7 +106,15 @@ mod tests {
 
     #[test]
     fn default_config_path_matches_the_tauri_app_id() {
-        assert!(default_config_path().ends_with("com.glint.desktop/config.json"));
+        // Compare path components, not a string suffix: Windows uses `\`.
+        let path = default_config_path();
+        let tail: Vec<_> = path
+            .components()
+            .rev()
+            .take(2)
+            .map(|c| c.as_os_str().to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(tail, vec!["config.json", "com.glint.desktop"]);
     }
 
     #[test]

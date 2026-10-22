@@ -26,7 +26,11 @@ pub struct ScreenCaptureResult {
     pub window_title: Option<String>,
 }
 
-pub fn encode_rgba_to_png_data_url(rgba_pixels: &[u8], width: u32, height: u32) -> Result<String, String> {
+pub fn encode_rgba_to_png_data_url(
+    rgba_pixels: &[u8],
+    width: u32,
+    height: u32,
+) -> Result<String, String> {
     if rgba_pixels.len() != (width as usize) * (height as usize) * 4 {
         return Err(format!(
             "RGBA 缓冲区长度异常: 预期 {}, 实际 {}",
@@ -36,8 +40,8 @@ pub fn encode_rgba_to_png_data_url(rgba_pixels: &[u8], width: u32, height: u32) 
     }
 
     use base64::Engine;
-    use image::codecs::png::PngEncoder;
     use image::ImageEncoder;
+    use image::codecs::png::PngEncoder;
 
     let mut buf = Vec::new();
     let encoder = PngEncoder::new(&mut buf);
@@ -84,14 +88,7 @@ pub fn capture_screen() -> Result<ScreenCaptureResult, String> {
         bmi.bmiHeader.biCompression = BI_RGB;
 
         let mut bits_ptr: *mut std::ffi::c_void = std::ptr::null_mut();
-        let hbm = CreateDIBSection(
-            hdc_mem,
-            &bmi,
-            DIB_RGB_COLORS,
-            &mut bits_ptr,
-            0 as _,
-            0,
-        );
+        let hbm = CreateDIBSection(hdc_mem, &bmi, DIB_RGB_COLORS, &mut bits_ptr, 0 as _, 0);
 
         if hbm == 0 as _ || bits_ptr.is_null() {
             let err = windows_sys::Win32::Foundation::GetLastError();
@@ -112,17 +109,7 @@ pub fn capture_screen() -> Result<ScreenCaptureResult, String> {
         use windows_sys::Win32::Foundation::SetLastError;
         SetLastError(0);
 
-        let success = BitBlt(
-            hdc_mem,
-            0,
-            0,
-            width,
-            height,
-            hdc_screen,
-            x,
-            y,
-            SRCCOPY,
-        );
+        let success = BitBlt(hdc_mem, 0, 0, width, height, hdc_screen, x, y, SRCCOPY);
 
         if success == 0 {
             SelectObject(hdc_mem, old_bm);
@@ -144,12 +131,9 @@ pub fn capture_screen() -> Result<ScreenCaptureResult, String> {
         ReleaseDC(0 as _, hdc_screen);
 
         // BGRA 转 RGBA
-        for chunk in rgba_buf.chunks_exact_mut(4) {
-            let b = chunk[0];
-            let r = chunk[2];
-            chunk[0] = r;
-            chunk[2] = b;
-            chunk[3] = 255;
+        for pixel in rgba_buf.as_chunks_mut::<4>().0 {
+            pixel.swap(0, 2);
+            pixel[3] = 255;
         }
 
         let image_data_url = encode_rgba_to_png_data_url(&rgba_buf, width as u32, height as u32)?;
@@ -191,7 +175,8 @@ pub fn generate_fallback_capture(width: u32, height: u32, x: i32, y: i32) -> Scr
         }
     }
 
-    let image_data_url = encode_rgba_to_png_data_url(&rgba, w, h).unwrap_or_else(|_| "data:image/png;base64,".to_string());
+    let image_data_url = encode_rgba_to_png_data_url(&rgba, w, h)
+        .unwrap_or_else(|_| "data:image/png;base64,".to_string());
     let window_title = crate::platform::get_active_window_title_opt();
     ScreenCaptureResult {
         image_data_url,
@@ -247,37 +232,35 @@ pub fn capture_selected_text() -> Option<SelectionResult> {
 
         if seq_changed {
             sleep(Duration::from_millis(10));
-            if let Some(mut poll_clip) = get_clipboard_with_retry() {
-                if let Ok(new_text) = poll_clip.get_text() {
-                    let trimmed = new_text.trim();
-                    if !trimmed.is_empty() {
-                        captured_text = Some(trimmed.to_string());
-                        break;
-                    }
+            if let Some(mut poll_clip) = get_clipboard_with_retry()
+                && let Ok(new_text) = poll_clip.get_text()
+            {
+                let trimmed = new_text.trim();
+                if !trimmed.is_empty() {
+                    captured_text = Some(trimmed.to_string());
+                    break;
                 }
             }
-        } else if initial_seq == 0 {
-            if let Some(mut poll_clip) = get_clipboard_with_retry() {
-                if let Ok(current_text) = poll_clip.get_text() {
-                    let trimmed = current_text.trim();
-                    if !trimmed.is_empty() && Some(&current_text) != original_snapshot.as_ref() {
-                        captured_text = Some(trimmed.to_string());
-                        break;
-                    }
-                }
+        } else if initial_seq == 0
+            && let Some(mut poll_clip) = get_clipboard_with_retry()
+            && let Ok(current_text) = poll_clip.get_text()
+        {
+            let trimmed = current_text.trim();
+            if !trimmed.is_empty() && Some(&current_text) != original_snapshot.as_ref() {
+                captured_text = Some(trimmed.to_string());
+                break;
             }
         }
     }
 
     // 4. 超时补偿比对
-    if captured_text.is_none() {
-        if let Some(mut poll_clip) = get_clipboard_with_retry() {
-            if let Ok(current_text) = poll_clip.get_text() {
-                let trimmed = current_text.trim();
-                if !trimmed.is_empty() && Some(&current_text) != original_snapshot.as_ref() {
-                    captured_text = Some(trimmed.to_string());
-                }
-            }
+    if captured_text.is_none()
+        && let Some(mut poll_clip) = get_clipboard_with_retry()
+        && let Ok(current_text) = poll_clip.get_text()
+    {
+        let trimmed = current_text.trim();
+        if !trimmed.is_empty() && Some(&current_text) != original_snapshot.as_ref() {
+            captured_text = Some(trimmed.to_string());
         }
     }
 
@@ -311,24 +294,26 @@ mod tests {
     }
 
     #[test]
-    fn test_clipboard_sequence_available() {
-        let seq = crate::platform::get_clipboard_sequence();
-        // 在 Windows 环境下应返回有效的序列号
-        #[cfg(target_os = "windows")]
-        assert!(seq > 0 || seq == 0);
+    #[cfg(target_os = "windows")]
+    fn test_clipboard_sequence_is_callable() {
+        // The value depends on the session (a CI runner with no interactive
+        // clipboard legitimately reports 0), so assert the API resolves rather
+        // than a specific number.
+        let _seq: u32 = crate::platform::get_clipboard_sequence();
     }
 
     #[test]
     fn test_encode_rgba_to_png_data_url_valid() {
         // 2x2 红色像素
         let rgba = vec![
-            255, 0, 0, 255,   255, 0, 0, 255,
-            255, 0, 0, 255,   255, 0, 0, 255,
+            255, 0, 0, 255, 255, 0, 0, 255, 255, 0, 0, 255, 255, 0, 0, 255,
         ];
         let data_url = encode_rgba_to_png_data_url(&rgba, 2, 2).expect("编码 PNG 应当成功");
         assert!(data_url.starts_with("data:image/png;base64,"));
         let b64_part = data_url.trim_start_matches("data:image/png;base64,");
-        let decoded = base64::engine::general_purpose::STANDARD.decode(b64_part).expect("base64 解码有效");
+        let decoded = base64::engine::general_purpose::STANDARD
+            .decode(b64_part)
+            .expect("base64 解码有效");
         // PNG 文件头签名: 0x89, 0x50 ('P'), 0x4E ('N'), 0x47 ('G')
         assert_eq!(&decoded[0..4], &[0x89, 0x50, 0x4E, 0x47]);
     }

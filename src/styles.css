@@ -3,6 +3,7 @@
 :root {
   /* 默认主题：Obsidian Frost (黑曜雾光) */
   --card-glass: rgba(10, 14, 23, 0.82);
+  --card-solid: #0a0e17;
   --card-border: rgba(255, 255, 255, 0.08);
   --hairline-edge: rgba(255, 255, 255, 0.14);
   --text-main: #f8fafc;
@@ -23,6 +24,7 @@
 body[data-theme="aurora"],
 :root[data-theme="aurora"] {
   --card-glass: rgba(8, 20, 22, 0.82);
+  --card-solid: #081416;
   --card-border: rgba(52, 211, 153, 0.15);
   --hairline-edge: rgba(52, 211, 153, 0.25);
   --text-main: #ecfdf5;
@@ -41,6 +43,7 @@ body[data-theme="aurora"],
 body[data-theme="amethyst"],
 :root[data-theme="amethyst"] {
   --card-glass: rgba(18, 12, 28, 0.84);
+  --card-solid: #120c1c;
   --card-border: rgba(192, 132, 252, 0.16);
   --hairline-edge: rgba(192, 132, 252, 0.26);
   --text-main: #faf5ff;
@@ -59,6 +62,7 @@ body[data-theme="amethyst"],
 body[data-theme="epaper"],
 :root[data-theme="epaper"] {
   --card-glass: rgba(22, 24, 29, 0.94);
+  --card-solid: #16181d;
   --card-border: rgba(255, 255, 255, 0.14);
   --hairline-edge: rgba(255, 255, 255, 0.22);
   --text-main: #ffffff;
@@ -104,6 +108,8 @@ body[data-theme="epaper"],
 }
 
 html, body {
+  /* The HUD window itself is transparent; the card paints its own opaque
+     surface. Keeping this transparent avoids a second, double-tinted layer. */
   background: transparent !important;
   font-family: var(--font-family);
   height: 100%;
@@ -114,12 +120,14 @@ html, body {
   user-select: text;
 }
 
+
 /* 核心浮动卡片：贴合视窗边缘，极致雾化磨砂 (Frosted Glass Acrylic) 质感 */
 .glint-card {
   position: relative;
-  background: var(--card-glass);
-  backdrop-filter: blur(40px) saturate(210%);
-  -webkit-backdrop-filter: blur(40px) saturate(210%);
+  /* Opaque base: WebKitGTK on Wayland does not composite `backdrop-filter`,
+     so a translucent card shows the page behind the text. Tint the solid
+     layer with the theme glass colour over an opaque backdrop. */
+  background: linear-gradient(var(--card-glass), var(--card-glass)), var(--card-solid);
   border: 1px solid var(--card-border);
   box-shadow: inset 0 1px 0 var(--hairline-edge), 0 20px 50px rgba(0, 0, 0, 0.65);
   border-radius: 12px;
@@ -129,7 +137,19 @@ html, body {
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  min-width: 0;
+  min-height: 0;
   transform: translateZ(0);
+}
+
+/* Additive glass: only add the blur, never lower the opacity of the base
+   surface. On WebKitGTK/Wayland backdrop-filter is a no-op, so the solid
+   layer below is what guarantees readable contrast. */
+@supports (backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px)) {
+  .glint-card {
+    backdrop-filter: blur(40px) saturate(210%);
+    -webkit-backdrop-filter: blur(40px) saturate(210%);
+  }
 }
 
 /* 顶部流光光刃 (Streamer Edge) */
@@ -250,6 +270,17 @@ html, body {
   border-color: rgba(255, 255, 255, 0.15);
 }
 
+.glass-icon-btn.pin-btn[aria-pressed="true"] {
+  background: rgba(56, 189, 248, 0.18);
+  color: var(--accent-cyan);
+  border-color: rgba(56, 189, 248, 0.45);
+}
+
+.glass-icon-btn.pin-btn[aria-pressed="true"] svg {
+  transform: rotate(45deg);
+  transition: transform 0.16s ease-out;
+}
+
 .glass-icon-btn.close-btn:hover {
   background: rgba(239, 68, 68, 0.18);
   color: #f87171;
@@ -259,6 +290,10 @@ html, body {
 /* 核心内容区 */
 .content-area {
   flex: 1;
+  /* WebKitGTK keeps flex items at their automatic minimum width unless this
+     is explicit; without it long unbroken CJK text collapses to ~1 char/line. */
+  min-width: 0;
+  min-height: 0;
   padding: 12px 14px;
   overflow-y: auto;
   font-size: 13px;
@@ -332,8 +367,13 @@ html, body {
 
 .explanation-text {
   flex: 1;
+  flex-basis: auto;
+  min-width: 0;
+  min-height: 0;
   overflow-y: auto;
+  overflow-x: hidden;
   word-break: break-word;
+  overflow-wrap: anywhere;
 }
 
 .explanation-text kbd {
@@ -347,12 +387,19 @@ html, body {
 }
 
 /* 现代化流光排版：代码块、行内代码与粗体 */
+.glint-code-shell {
+  position: relative;
+  margin: 8px 0;
+  max-width: 100%;
+  min-width: 0;
+}
+
 .glint-code-block {
   background: rgba(0, 0, 0, 0.45);
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 6px;
   padding: 10px 12px;
-  margin: 8px 0;
+  margin: 0;
   overflow-x: auto;
   font-family: var(--font-mono);
   font-size: 12px;
@@ -360,6 +407,45 @@ html, body {
   color: #e2e8f0;
   white-space: pre-wrap;
   word-break: break-all;
+}
+
+/* Copy affordance: appears on hover/focus, always reachable by keyboard. */
+.glint-copy-btn {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  padding: 2px 8px;
+  font-size: 10.5px;
+  font-family: var(--font-family);
+  color: var(--text-muted);
+  background: rgba(20, 24, 33, 0.9);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 5px;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.14s ease, color 0.14s ease, border-color 0.14s ease;
+}
+
+.glint-code-shell:hover .glint-copy-btn,
+.glint-copy-btn:focus-visible {
+  opacity: 1;
+}
+
+.glint-copy-btn:hover {
+  color: var(--accent-cyan);
+  border-color: rgba(56, 189, 248, 0.5);
+}
+
+.glint-copy-btn.copied {
+  opacity: 1;
+  color: #34d399;
+  border-color: rgba(52, 211, 153, 0.5);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .glint-copy-btn {
+    transition: none;
+  }
 }
 
 .glint-code-block code {
@@ -500,6 +586,54 @@ html, body {
 .reply-turn {
   margin-top: 6px;
   line-height: 1.65;
+  min-width: 0;
+}
+
+/* Label for one turn inside a thread: "追问: …" or "划词: …". */
+.turn-label {
+  font-weight: 600;
+  color: var(--text-muted);
+  margin: 12px 0 6px 0;
+  font-size: 12px;
+  border-top: 1px dashed rgba(255, 255, 255, 0.08);
+  padding-top: 8px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+/* Continuity marker. Deliberately quiet, but always present: a silently
+ * continued thread is the one failure mode users cannot see coming. */
+.thread-divider {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 14px 0 4px 0;
+  font-size: 11px;
+  letter-spacing: 0.02em;
+  color: var(--text-muted);
+  opacity: 0.75;
+}
+
+.thread-divider::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: currentColor;
+  opacity: 0.25;
+}
+
+/* Widgets and code blocks must never force the card wider than the viewport. */
+.glint-widget,
+.glint-code-block,
+.table-scroll-wrapper,
+.compare-table {
+  max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+
+.table-scroll-wrapper {
+  overflow-x: auto;
 }
 
 /* 截屏视觉透视缩略图横幅 */

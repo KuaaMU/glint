@@ -1,4 +1,4 @@
-use crate::config::{load_config, save_config, AppConfig};
+use crate::config::{AppConfig, load_config, save_config};
 use reqwest::Client;
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
@@ -121,7 +121,9 @@ pub async fn fetch_models(api_key: String, base_url: String) -> Result<Vec<Strin
                         break;
                     }
                 }
-            } else if status == reqwest::StatusCode::UNAUTHORIZED || status == reqwest::StatusCode::FORBIDDEN {
+            } else if status == reqwest::StatusCode::UNAUTHORIZED
+                || status == reqwest::StatusCode::FORBIDDEN
+            {
                 last_error_msg = format!("认证失败 (HTTP {}): API Key 无效或未授权", status);
             } else {
                 last_error_msg = format!("端点返回异常状态 (HTTP {})", status);
@@ -138,8 +140,16 @@ pub async fn fetch_models(api_key: String, base_url: String) -> Result<Vec<Strin
 
     // 常用对话模型优先展示
     model_ids.sort_by(|a, b| {
-        let is_chat_a = a.contains("chat") || a.contains("reasoner") || a.contains("gpt-4") || a.contains("qwen") || a.contains("claude");
-        let is_chat_b = b.contains("chat") || b.contains("reasoner") || b.contains("gpt-4") || b.contains("qwen") || b.contains("claude");
+        let is_chat_a = a.contains("chat")
+            || a.contains("reasoner")
+            || a.contains("gpt-4")
+            || a.contains("qwen")
+            || a.contains("claude");
+        let is_chat_b = b.contains("chat")
+            || b.contains("reasoner")
+            || b.contains("gpt-4")
+            || b.contains("qwen")
+            || b.contains("claude");
         is_chat_b.cmp(&is_chat_a).then(a.cmp(b))
     });
     model_ids.dedup();

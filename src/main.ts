@@ -32,6 +32,8 @@ applyTheme();
 interface GlintTriggerPayload {
   text?: string;
   window_title?: string | null;
+  app_class?: string | null;
+  doc_key?: string | null;
 }
 
 interface StreamChunk {
@@ -45,6 +47,7 @@ interface QueryRequest {
   base_url?: string | null;
   model?: string | null;
   window_title?: string | null;
+  enable_tools?: boolean;
 }
 
 // DOM 元素引用
@@ -92,6 +95,106 @@ let currentSessionIsMultimodal = false;
 let currentSessionImageDataUrl = "";
 let currentHostTitle: string | null = null;
 
+// ── 阅读线索 (thread) ────────────────────────────────────────────────
+// Glint 的会话挂在你正在读的那篇东西上，而不是挂在聊天列表里。
+// 判定规则与 Rust 端 `glint_core::context::plan_turn` 保持一致：
+// 同一应用 + 同一文档 + 30 分钟内 + 轮次未超限 → 续接；否则新开。
+const CONTINUE_WINDOW_MS = 30 * 60 * 1000;
+const SCREENSHOT_WINDOW_MS = 5 * 60 * 1000;
+const MAX_CONTINUED_TURNS = 8;
+
+interface ThreadState {
+  appClass: string;
+  docKey: string | null;
+  lastTurnAt: number;
+  turnCount: number;
+}
+
+let currentThread: ThreadState | null = null;
+
+// One request at a time. A second trigger arriving before the first `Done`
+// would otherwise leave two live channel handlers appending to the same
+// transcript, producing histories like U1, U2, A1, A2 instead of alternating
+// turns. The newest trigger replaces any still-queued one.
+let turnInFlight = false;
+let queuedTurn: (() => void) | null = null;
+
+function runTurn(start: () => void) {
+  if (turnInFlight) {
+    queuedTurn = start;
+    return;
+  }
+  start();
+}
+
+function finishTurn() {
+  if (!turnInFlight) return;
+  turnInFlight = false;
+  const next = queuedTurn;
+  queuedTurn = null;
+  if (next) next();
+}
+// 冻结的宿主标签：一条线索建立时确定，之后不再改写，保证提示词前缀稳定、
+// 也避免把完整窗口标题（可能含敏感信息）送给模型。
+let frozenHostLabel: string | null = null;
+
+/** 把窗口标题压缩成「应用 + 文档」的短标签。 */
+function hostLabelFor(title: string | null, appClass: string): string {
+  const raw = (title || "").trim();
+  if (!raw) return appClass || "";
+  const parts = raw.split(/\s+[-—]\s+/);
+  const head = parts.length > 1 ? parts[0] : raw;
+  return head.slice(0, 60);
+}
+
+function shouldContinueThread(
+  host: { appClass: string; docKey: string | null },
+  trigger: "text" | "screenshot",
+  now: number
+): boolean {
+  if (!currentThread || conversationMessages.length === 0) return false;
+
+  // No anchor means no evidence of continuity. Time alone is not evidence:
+  // two unrelated selections a minute apart look identical under a timer, and
+  // the cost of wrongly continuing (another document's history reaches the
+  // model) is higher than the cost of starting over.
+  if (!host.appClass || !currentThread.appClass) return false;
+
+  // 应用类别不同，一定不续接。
+  if (host.appClass !== currentThread.appClass) return false;
+
+  if (currentThread.turnCount >= MAX_CONTINUED_TURNS) return false;
+  if (currentThread.docKey && host.docKey && currentThread.docKey !== host.docKey) return false;
+
+  const window = trigger === "screenshot" ? SCREENSHOT_WINDOW_MS : CONTINUE_WINDOW_MS;
+  return now - currentThread.lastTurnAt <= window;
+}
+
+function rememberThread(
+  host: { appClass: string; docKey: string | null },
+  continuing: boolean
+) {
+  currentThread = {
+    appClass: host.appClass,
+    docKey: host.docKey,
+    lastTurnAt: Date.now(),
+    // A continuing thread keeps its count; a new one starts at 1.
+    turnCount: (continuing ? currentThread?.turnCount ?? 0 : 0) + 1,
+  };
+}
+
+function resetThread() {
+  currentThread = null;
+}
+
+/** 线索分隔条：让「续接」这件事始终可见，绝不静默。 */
+function appendThreadDivider(label: string) {
+  const divider = document.createElement("div");
+  divider.className = "thread-divider";
+  divider.textContent = label;
+  explanationText.appendChild(divider);
+}
+
 // 配置状态获取
 function getStoredSetting(key: string, fallback: string): string {
   return localStorage.getItem(key) || fallback;
@@ -136,10 +239,12 @@ function getMessageDisplaySummary(content: MessageContent): string {
 async function executeExplain(
   messages: ChatMessage[],
   sessionId: number,
-  targetElementOverride?: HTMLElement
+  targetElementOverride?: HTMLElement,
+  options?: { label?: string }
 ) {
   if (sessionId !== activeSessionId) return;
 
+  turnInFlight = true;
   statusIndicator.style.display = "inline-flex";
 
   const onEvent = new Channel<StreamChunk>();
@@ -150,10 +255,10 @@ async function executeExplain(
     targetOutputEl = targetElementOverride;
   } else if (messages.length > 1) {
     const lastUserSummary = getMessageDisplaySummary(messages[messages.length - 1].content);
+    // 一条线索里可以出现「追问」「再次划词」「截图」，标签必须说实话。
     const qDiv = document.createElement("div");
-    qDiv.style.cssText =
-      "font-weight:600; color:var(--text-muted); margin:12px 0 6px 0; font-size:12px; border-top:1px dashed rgba(255,255,255,0.08); padding-top:8px;";
-    qDiv.textContent = `追问: ${lastUserSummary}`;
+    qDiv.className = "turn-label";
+    qDiv.textContent = options?.label ?? `追问: ${lastUserSummary}`;
     explanationText.appendChild(qDiv);
 
     const aDiv = document.createElement("div");
@@ -166,6 +271,7 @@ async function executeExplain(
 
   // 创建并启动深模块流式渲染管线
   const pipeline = new StreamingRenderPipeline(targetOutputEl);
+  activePipeline = pipeline;
   pipeline.beginTurn({ targetOverride: targetOutputEl });
 
   onEvent.onmessage = (chunk: StreamChunk) => {
@@ -174,19 +280,26 @@ async function executeExplain(
 
     if (chunk.type === "Token" && typeof chunk.data === "string") {
       pipeline.appendToken(chunk.data);
-    } else if (chunk.type === "ToolCall" && chunk.data && typeof chunk.data === "object") {
-      pipeline.mountToolCall(chunk.data as ToolCallPayload);
+    } else if (chunk.type === "ToolCall") {
+      // Tool calls are implementation detail: keep the loading indicator and
+      // never render a capsule. Users only need the answer text.
+      statusIndicator.style.display = "inline-flex";
     } else if (chunk.type === "Done") {
       statusIndicator.style.display = "none";
       const fullTurnText = pipeline.getCurrentText();
       conversationMessages.push({ role: "assistant", content: fullTurnText });
 
+      // 本轮结束时间决定「还能否续接」，必须在结束时记，而不是开始时。
+      if (currentThread) currentThread.lastTurnAt = Date.now();
+
       // 持久化保存至本地历史存储
       saveCurrentSessionToHistory(fullTurnText);
+      finishTurn();
     } else if (chunk.type === "Error") {
       statusIndicator.style.display = "none";
       const errNotice = typeof chunk.data === "string" ? chunk.data : "请求出错";
       pipeline.reportError(errNotice);
+      finishTurn();
     }
   };
 
@@ -195,7 +308,11 @@ async function executeExplain(
     api_key: getStoredSetting("glint_api_key", ""),
     base_url: getStoredSetting("glint_base_url", "https://api.deepseek.com/v1"),
     model: getStoredSetting("glint_model", "deepseek-chat"),
-    window_title: currentHostTitle,
+    // First token must not wait for a tool round-trip.
+    enable_tools: false,
+    // Host label: the model gets a short label, never the full title. It is
+    // also frozen for the thread, so the cached prompt prefix stays stable.
+    window_title: frozenHostLabel,
   };
 
   if (isTauri()) {
@@ -206,6 +323,7 @@ async function executeExplain(
         statusIndicator.style.display = "none";
         targetOutputEl.textContent = `调用错误: ${err}`;
       }
+      finishTurn();
     }
   } else {
     // 浏览器独立预览模式模拟
@@ -228,7 +346,11 @@ function saveCurrentSessionToHistory(lastTurnOutput: string) {
     id: currentSessionId,
     createdAt: currentSessionCreatedAt || Date.now(),
     updatedAt: Date.now(),
-    hostTitle: currentHostTitle,
+    // Only the app class and document digest are persisted; the raw window
+    // title can contain page content or account names.
+    hostTitle: currentThread?.appClass || null,
+    contextKey: currentThread?.appClass || undefined,
+    docKey: currentThread?.docKey ?? null,
     queryText: querySummary,
     isMultimodal: currentSessionIsMultimodal,
     imageDataUrl: currentSessionImageDataUrl || undefined,
@@ -352,71 +474,130 @@ async function simulateMockStream(
   }
 }
 
-// 开始纯文本透视会话
-function startNewQuery(text: string, windowTitle?: string | null) {
-  activeSessionId++;
-  currentSessionId = `glint_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
-  currentSessionCreatedAt = Date.now();
-  currentSessionIsMultimodal = false;
-  currentSessionImageDataUrl = "";
+// 开始一次划词透视。
+//
+// 同一文档、短时间内、线索未超长时，新选区作为「又一次划词」接到当前
+// 线索里；否则新开一条线索。提示条会明确写出当前是续接还是新开。
+function startNewQuery(
+  text: string,
+  windowTitle?: string | null,
+  host?: { appClass?: string | null; docKey?: string | null }
+) {
+  // Queued if a previous answer is still streaming: the turn is appended to the
+  // transcript only when it actually starts, so the history stays alternating.
+  runTurn(() => {
+    const truncatedResult = truncateSelection(text, 3000);
+    updateTruncationUI(truncatedResult.truncated, truncatedResult.originalLen);
+    updateHostBadge(windowTitle);
 
-  updateHostBadge(windowTitle);
-  const truncatedResult = truncateSelection(text, 3000);
-  updateTruncationUI(truncatedResult.truncated, truncatedResult.originalLen);
-  conversationMessages = [{ role: "user", content: truncatedResult.text }];
-  executeExplain(conversationMessages, activeSessionId);
+    const identity = {
+      appClass: (host?.appClass || "").trim().toLowerCase(),
+      docKey: host?.docKey || null,
+    };
+    const continuing = shouldContinueThread(identity, "text", Date.now());
+
+    if (!continuing) {
+      activeSessionId++;
+      currentSessionId = `glint_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+      currentSessionCreatedAt = Date.now();
+      currentSessionIsMultimodal = false;
+      currentSessionImageDataUrl = "";
+      resetThread();
+      frozenHostLabel = hostLabelFor(windowTitle ?? null, identity.appClass);
+      conversationMessages = [{ role: "user", content: truncatedResult.text }];
+      executeExplain(conversationMessages, activeSessionId);
+    } else {
+      conversationMessages.push({ role: "user", content: truncatedResult.text });
+      executeExplain(conversationMessages, activeSessionId, undefined, {
+        label: `再次划词 · 第 ${(currentThread?.turnCount ?? 0) + 1} 轮`,
+      });
+    }
+
+    rememberThread(identity, continuing);
+  });
 }
 
 // 开始多模态截图透视会话
+//
+// A screenshot is an *additional view* on the current lens, not a new topic.
+// When the card already holds a conversation (e.g. the user selected a
+// sentence and then snipped a diagram to ask about it), the image turn is
+// appended to that thread so the model keeps the prior answer in context.
+// Only an empty card starts a fresh session.
 function startNewMultimodalQuery(
   imageDataUrl: string,
   prompt?: string,
-  windowTitle?: string | null
+  windowTitle?: string | null,
+  host?: { appClass?: string | null; docKey?: string | null }
 ) {
-  activeSessionId++;
-  currentSessionId = `glint_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
-  currentSessionCreatedAt = Date.now();
-  currentSessionIsMultimodal = true;
-  currentSessionImageDataUrl = imageDataUrl;
+  runTurn(() => {
+    // Only the snip's own identity counts. Falling back to the open thread's
+    // identity would attach a snip from app B to app A's history, the exact
+    // bleed this model exists to prevent.
+    const identity = {
+      appClass: (host?.appClass || "").trim().toLowerCase(),
+      docKey: host?.docKey || null,
+    };
+    // 截图沿用与划词相同的线索规则，但续接窗口更短：截图通常意味着
+    // 「我在看这个」而不是「我还在读同一段」。
+    const continuing = shouldContinueThread(identity, "screenshot", Date.now());
 
-  updateTruncationUI(false, 0);
-  updateHostBadge(windowTitle, "屏幕透视");
-  const defaultPrompt = prompt || "请分析所选屏幕区域的内容，一针见血透视核心本质与关键信息。";
-  conversationMessages = [
-    {
+    if (!continuing) {
+      activeSessionId++;
+      currentSessionId = `glint_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+      currentSessionCreatedAt = Date.now();
+      resetThread();
+      frozenHostLabel = hostLabelFor(windowTitle ?? currentHostTitle, identity.appClass);
+    }
+    currentSessionIsMultimodal = true;
+    currentSessionImageDataUrl = imageDataUrl;
+
+    updateTruncationUI(false, 0);
+    updateHostBadge(windowTitle || currentHostTitle, "屏幕透视");
+
+    const defaultPrompt = prompt || "请分析所选屏幕区域的内容，一针见血透视核心本质与关键信息。";
+    const imageTurn: ChatMessage = {
       role: "user",
       content: [
         { type: "text", text: defaultPrompt },
         { type: "image_url", image_url: { url: imageDataUrl } },
       ],
-    },
-  ];
+    };
 
-  // 渲染截图缩略图横幅 (安全 DOM 构建)
-  emptyElement(explanationText);
+    if (continuing) {
+      conversationMessages.push(imageTurn);
+      appendThreadDivider(`截图 · 接在当前线索后 · ${currentThread?.turnCount ?? 1} 轮`);
+    } else {
+      conversationMessages = [imageTurn];
+      // 渲染截图缩略图横幅 (安全 DOM 构建)
+      emptyElement(explanationText);
+    }
 
-  const banner = document.createElement("div");
-  banner.className = "capture-preview-banner";
+    rememberThread(identity, continuing);
 
-  const img = document.createElement("img");
-  img.src = imageDataUrl;
-  img.alt = "截屏预览";
+    const banner = document.createElement("div");
+    banner.className = "capture-preview-banner";
 
-  const badge = document.createElement("span");
-  badge.className = "preview-badge";
-  badge.textContent = "✨ 视觉透视";
+    const img = document.createElement("img");
+    img.src = imageDataUrl;
+    img.alt = "截屏预览";
 
-  banner.appendChild(img);
-  banner.appendChild(badge);
+    const badge = document.createElement("span");
+    badge.className = "preview-badge";
+    badge.textContent = "✨ 视觉透视";
 
-  const replyTurnEl = document.createElement("div");
-  replyTurnEl.className = "reply-turn";
+    banner.appendChild(img);
+    banner.appendChild(badge);
 
-  explanationText.appendChild(banner);
-  explanationText.appendChild(replyTurnEl);
+    const replyTurnEl = document.createElement("div");
+    replyTurnEl.className = "reply-turn";
 
-  executeExplain(conversationMessages, activeSessionId, replyTurnEl);
-  followupInput.focus();
+    explanationText.appendChild(banner);
+    explanationText.appendChild(replyTurnEl);
+
+    executeExplain(conversationMessages, activeSessionId, replyTurnEl);
+    followupInput.focus();
+  });
 }
 
 // 发送深入追问
@@ -425,8 +606,15 @@ function sendFollowup() {
   if (!q) return;
   followupInput.value = "";
 
-  conversationMessages.push({ role: "user", content: q });
-  executeExplain(conversationMessages, activeSessionId);
+  runTurn(() => {
+    conversationMessages.push({ role: "user", content: q });
+    if (currentThread) {
+      // A typed question counts as a turn for the continuation limit, but it
+      // does not extend the idle window on its own (the answer's Done does).
+      currentThread.turnCount += 1;
+    }
+    executeExplain(conversationMessages, activeSessionId);
+  });
 }
 
 // 拖拽窗口
@@ -629,6 +817,18 @@ function restoreSession(session: GlintSessionRecord) {
   conversationMessages = [...session.messages];
   updateTruncationUI(false, 0);
 
+  // 恢复的会话沿用原来的宿主身份；没有记录时只能新开线索。
+  resetThread();
+  frozenHostLabel = hostLabelFor(session.hostTitle ?? null, session.contextKey ?? "");
+  if (session.contextKey) {
+    currentThread = {
+      appClass: session.contextKey,
+      docKey: session.docKey ?? null,
+      lastTurnAt: session.updatedAt || Date.now(),
+      turnCount: session.messages.filter((m) => m.role === "user").length,
+    };
+  }
+
   emptyElement(explanationText);
 
   // 恢复截图预览横幅
@@ -721,6 +921,85 @@ if (btnClearHistory) {
   });
 }
 
+// --- Code block copy (event delegation) -----------------------------------
+let activePipeline: StreamingRenderPipeline | null = null;
+
+// The streaming pipeline replaces `innerHTML` on every token, so per-block
+// listeners would be destroyed mid-stream. A single delegated handler on the
+// answer container survives re-renders.
+explanationText.addEventListener("click", async (event) => {
+  const target = event.target as HTMLElement | null;
+  const button = target?.closest<HTMLButtonElement>(".glint-copy-btn");
+  if (!button) return;
+
+  const encoded = button.dataset.code;
+  if (!encoded) return;
+
+  let code = "";
+  try {
+    code = decodeURIComponent(encoded);
+  } catch {
+    return;
+  }
+
+  try {
+    await navigator.clipboard.writeText(code);
+  } catch {
+    // Clipboard API can be unavailable in an unfocused webview; fall back to
+    // a temporary textarea so copy still works.
+    const area = document.createElement("textarea");
+    area.value = code;
+    area.style.position = "fixed";
+    area.style.opacity = "0";
+    document.body.appendChild(area);
+    area.select();
+    document.execCommand("copy");
+    area.remove();
+  }
+
+  activePipeline?.markCopied(encoded);
+  const previous = button.textContent;
+  button.textContent = "已复制";
+  button.classList.add("copied");
+  window.setTimeout(() => {
+    button.textContent = previous || "复制";
+    button.classList.remove("copied");
+  }, 1400);
+});
+
+// --- Pin (固定) -----------------------------------------------------------
+// A pinned card stays on screen and ignores the automatic hide that follows a
+// trigger elsewhere. State is mirrored to the shell so `toggle_hud_window` can
+// respect it, and persisted per user.
+const PIN_STORAGE_KEY = "glint_pinned";
+let isPinned = localStorage.getItem(PIN_STORAGE_KEY) === "true";
+const btnPinCard = document.getElementById("btn-pin-card") as HTMLButtonElement | null;
+
+function applyPinUI() {
+  if (!btnPinCard) return;
+  btnPinCard.setAttribute("aria-pressed", isPinned ? "true" : "false");
+  btnPinCard.title = isPinned ? "已固定（点击取消）" : "固定卡片（不自动收起）";
+  document.body.dataset.pinned = isPinned ? "true" : "false";
+}
+
+async function setPinned(next: boolean) {
+  isPinned = next;
+  localStorage.setItem(PIN_STORAGE_KEY, String(next));
+  applyPinUI();
+  if (isTauri()) {
+    try {
+      await invoke("set_hud_pinned", { pinned: next });
+    } catch (err) {
+      console.error("设置固定状态失败:", err);
+    }
+  }
+}
+
+applyPinUI();
+btnPinCard?.addEventListener("click", () => {
+  void setPinned(!isPinned);
+});
+
 // 窗口控制与快捷键
 btnCloseCard.addEventListener("click", async () => {
   if (isTauri()) {
@@ -764,6 +1043,8 @@ window.addEventListener("keydown", async (e) => {
       toggleHistoryDeck(false);
       return;
     }
+    // Escape always dismisses, even when pinned. Pin only suppresses
+    // automatic hiding, never an explicit user action.
     if (isTauri()) {
       await invoke("hide_window");
     }
@@ -840,34 +1121,48 @@ if (isTauri()) {
   });
 
   // 监听截屏多模态透视触发事件
-  listen<{ image_data_url: string; prompt?: string; window_title?: string | null }>(
-    "glint-multimodal-trigger",
-    (event) => {
-      const payload = event.payload;
-      if (payload && payload.image_data_url) {
-        startNewMultimodalQuery(payload.image_data_url, payload.prompt, payload.window_title);
-      }
+  listen<{
+    image_data_url: string;
+    prompt?: string;
+    window_title?: string | null;
+    app_class?: string | null;
+    doc_key?: string | null;
+  }>("glint-multimodal-trigger", (event) => {
+    const payload = event.payload;
+    if (payload && payload.image_data_url) {
+      startNewMultimodalQuery(payload.image_data_url, payload.prompt, payload.window_title, {
+        appClass: payload.app_class,
+        docKey: payload.doc_key,
+      });
     }
-  );
+  });
 
   // 注册 Tauri 原生划词触发事件
   listen<GlintTriggerPayload | string>("glint-trigger", (event) => {
     let text = "";
     let winTitle: string | null = null;
+    let appClass: string | null = null;
+    let docKey: string | null = null;
     if (typeof event.payload === "string") {
       text = event.payload.trim();
     } else if (event.payload && typeof event.payload === "object") {
       text = (event.payload.text || "").trim();
       winTitle = event.payload.window_title || null;
+      appClass = event.payload.app_class || null;
+      docKey = event.payload.doc_key || null;
     }
 
     if (text) {
-      startNewQuery(text, winTitle);
+      startNewQuery(text, winTitle, { appClass, docKey });
     } else {
       updateTruncationUI(false, 0);
       updateHostBadge(winTitle);
       activeSessionId++;
       conversationMessages = [];
+      // A failed capture ends the thread: it must never be silently resumed
+      // by the next unrelated selection.
+      resetThread();
+      frozenHostLabel = null;
       emptyElement(explanationText);
 
       const titleDiv = document.createElement("div");

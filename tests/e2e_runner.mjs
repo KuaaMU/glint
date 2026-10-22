@@ -133,25 +133,21 @@ async function main() {
   );
   console.log("========================================================\n");
 
-  // Invariant Verification Checklist
-  console.log("System Invariants & Security Gates Verified:");
-  console.log("  [✓] Zero naked innerHTML in src/main.ts (Sanitized markdown pipeline)");
-  console.log("  [✓] XSS injection immunity against 8 adversarial attack vectors");
-  console.log("  [✓] Unicode-safe 3000-character truncation boundary defense");
-  console.log("  [✓] Windows Tier-1 & Alt+W hotkey alignment in README.md");
-  console.log("  [✓] Slint 1.18 + FemtoVG pure native vector lens contract");
-  console.log("  [✓] Win32 zero-conflict clipboard sequence engine & modifier synthesis");
-  console.log("  [✓] Foreground window perception hook & LLM context envelope");
-  console.log("  [✓] Decoupled streaming channel & offline typewriter fallback");
-  console.log("  [✓] Native hotkey summon loop & latency < 20ms assertion");
-  console.log("  [✓] Idle working set RAM < 15MB assertion");
-  console.log("  [✓] Dual-track non-interference: cargo test (14 passed) & npm run build (clean)\n");
+  // These are static contract checks, not runtime acceptance tests.
+  // Runtime behavior (hotkey delivery, PRIMARY capture, layer-shell placement,
+  // IME, first-frame latency, RSS) is tracked in tests/RUNTIME_ACCEPTANCE.md.
+  console.log("Contract-test note:");
+  console.log("  - This runner checks source/config contracts and unit behaviour only.");
+  console.log("  - It does NOT prove runtime Wayland integration or memory/latency targets.");
+  console.log(`  - Result: ${totalPassed} passed, ${totalFailed} failed, ${totalSkipped} skipped.\n`);
 
   if (totalFailed > 0) {
     console.error(`💥 TEST SUITE FAILED: ${totalFailed} test(s) failed.`);
     process.exit(1);
   } else {
-    console.log(`🎉 ALL TESTS PASSED SUCCESSFULLY! (${totalPassed}/${totalTests} cases, code 0)`);
+    console.log(
+      `🎉 CONTRACT SUITE GREEN (${totalPassed} passed, ${totalSkipped} skipped, ${totalTests} registered).`
+    );
     process.exit(0);
   }
 }

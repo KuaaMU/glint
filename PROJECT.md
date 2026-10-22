@@ -1,5 +1,11 @@
 # Project: Glint Pure Native Desktop Vector Lens & Security Hardening
 
+> **Status note (2026-10-19):** This document is a target specification, not an
+> implementation report. `crates/glint-hud` does not exist; M2–M4 are not
+> implemented. The current Linux direction is recorded in
+> `docs/adr/0012-linux-native-companion-architecture.md`, and the real test
+> status is in `TEST_READY.md`.
+
 ## Architecture
 Glint evolves along a dual-track architecture:
 1. **Existing Web Track (Hardened)**:

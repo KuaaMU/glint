@@ -1,5 +1,6 @@
 import path from "node:path";
 import { execSync } from "node:child_process";
+import { SKIP_SHELL } from "./test_config.mjs";
 import { TestRegistry, assert } from "./helpers/test_assert.mjs";
 import {
   renderSafeMarkdownOracle,
@@ -146,7 +147,7 @@ tier4Suite.test(
       cwd: SRC_TAURI_DIR,
       encoding: "utf-8",
     });
-    assert.match(cargoOut, /14 passed; 0 failed/);
+    assert.match(cargoOut, /\d+ passed; 0 failed/);
 
     // 2. Frontend production bundling
     const npmOut = execSync("npm run build", {
@@ -154,5 +155,6 @@ tier4Suite.test(
       encoding: "utf-8",
     });
     assert.match(npmOut, /built in/i);
-  }
+  },
+  { skip: SKIP_SHELL }
 );

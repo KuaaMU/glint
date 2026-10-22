@@ -1,85 +1,73 @@
-# Test Suite Readiness Report (TEST_READY)
+# Test Status — Contract Baseline
 
-## 1. Executive Summary
+**Date:** 2026-10-19
+**Replaces:** the previous "115/115 passed" report, which was not reproducible.
 
-The comprehensive End-to-End (E2E) testing framework for **Glint** is fully implemented, verified, and ready for continuous regression and milestone validation. The test suite adheres strictly to the specifications established in `ORIGINAL_REQUEST.md` and `PROJECT.md § Feature Inventory` across both the Hardened Web Companion Track (Tauri v2 + TypeScript) and the Pure Native Vector Lens Track (Slint + Pure Rust).
+## 1. What this suite actually is
 
-- **Total Test Cases Implemented**: **115**
-- **Test Execution Pass Rate**: **100% (115 passed, 0 failed, 0 skipped)**
-- **Test Runner Exit Code**: `0`
-- **Execution Command**: `node tests/e2e_runner.mjs`
-- **Execution Duration**: ~17.5 seconds
+`node tests/e2e_runner.mjs` is a **contract/unit suite**. It runs in Node,
+without a desktop session, and checks source files, sanitisation behaviour,
+and a few `cargo test` invocations. It does **not** exercise Wayland,
+global hotkeys, PRIMARY selection, layer-shell, IME, RSS, or latency.
 
----
+Runtime acceptance is a separate, manual layer: see
+[`tests/RUNTIME_ACCEPTANCE.md`](tests/RUNTIME_ACCEPTANCE.md).
 
-## 2. 4-Tier Test Stratification Results
+## 2. Current result
 
-| Tier | Focus Scope | Test Cases | Passed | Failed | Skipped | Status |
-|---|---|---|---|---|---|---|
-| **Tier 1: Feature Coverage** | Features 1 through 18 (>=5 cases per feature across M1-M4) | 91 | 91 | 0 | 0 | 🟢 PASS |
-| **Tier 2: Boundary & Corner Cases** | String lengths (0, 2999, 3000, 3001, 50k), Unicode emojis, 8 XSS payloads, RAM (<15MB), latency (<20ms) | 15 | 15 | 0 | 0 | 🟢 PASS |
-| **Tier 3: Cross-Feature Combinations** | Multi-system pipelines (selection + truncation + streaming, hotkey + window title + multi-turn, toggle stress) | 5 | 5 | 0 | 0 | 🟢 PASS |
-| **Tier 4: Real-World Workloads** | Complex multi-language programming code blocks, 5-turn developer dialogue, 100-cycle toggle stress, concurrent dual build | 4 | 4 | 0 | 0 | 🟢 PASS |
-| **TOTAL** | **Comprehensive System Validation** | **115** | **115** | **0** | **0** | 🟢 **100% PASS** |
+Run on Fedora 45 / KDE Plasma 6.7 / Wayland, after installing the GTK/WebKit
+development headers:
 
----
+| Suite | Total | Pass | Fail | Skip |
+|---|---:|---:|---:|---:|
+| Tier 1: Feature Coverage | 91 | 53 | 0 | 38 |
+| Tier 2: Boundary & Corner Cases | 15 | 15 | 0 | 0 |
+| Tier 3: Cross-Feature Combinations | 5 | 5 | 0 | 0 |
+| Tier 4: Real-World Workloads | 4 | 4 | 0 | 0 |
+| **TOTAL** | **115** | **77** | **0** | **38** |
 
-## 3. Feature Inventory Verification Matrix (All 18 Features)
+The 38 skips are listed in section 3. Zero failures remain, but the suite is
+still a **contract** suite — see section 5 for what it does not cover.
 
-| # | Feature Name | Milestone | Tier 1 Cases | Invariants Verified | Result |
-|---|---|---|---|---|---|
-| **F1** | Safe Markdown Parser | M1 | 6 | Escapes `&`, `<`, `>`, `"`, `'`; renders code blocks, inline code, bold text, unclosed streaming blocks | 🟢 PASS |
-| **F2** | Eliminate `innerHTML` | M1 | 5 | Zero naked `.innerHTML =` or `.innerHTML +=` writes; stream output routed through `renderSafeMarkdown`; safe DOM clearing | 🟢 PASS |
-| **F3** | 3000-char Truncation | M1 | 5 | Boundary preservation at 2999, 3000, 3001; Unicode astral plane & surrogate safety; amber UI capsule feedback | 🟢 PASS |
-| **F4** | README Alignment | M1 | 5 | Documents Windows Tier-1 (主力生产); macOS/Linux experimental; `Alt + W` (截屏透视) and `Alt + Q` / `Alt + D` in shortcuts table | 🟢 PASS |
-| **F5** | Slint Workspace & Crate | M2 | 5 | Cargo workspace separation; Slint 1.18 specification; `renderer-femtovg` feature; `build.rs` compiles `ui/hud.slint` | 🟢 PASS |
-| **F6** | Obsidian Glass Texture | M2 | 5 | Borderless `no-frame: true`; `transparent` background; Obsidian crystal `#0d1117e8`; Win32 DWM acrylic backdrop blur | 🟢 PASS |
-| **F7** | Precision Vector Lines | M2 | 5 | 1px horizontal gradient light blade; 0.5px precision hairline border; frosted glass translucency; FemtoVG subpixel rendering | 🟢 PASS |
-| **F8** | Breathing Glow Animation | M2 | 5 | Reactive `glow_pulse` animation property; streaming aura boost; smooth visual transitions | 🟢 PASS |
-| **F9** | Zero Web Runtime | M2 | 5 | Zero WebView2, HTML, CSS, or Node.js runtime footprint in native HUD executable; pure Rust OpenGL FemtoVG rasterizer | 🟢 PASS |
-| **F10** | Clipboard Engine Reuse | M3 | 5 | Win32 `GetClipboardSequenceNumber` atomic polling; Alt modifier release synthesis; retry sequence loop; existing 14 cargo tests pass | 🟢 PASS |
-| **F11** | Window Title Awareness | M3 | 5 | `GetForegroundWindow` + `GetWindowTextW` integration; zero heap allocation on query; injection into LLM prompt envelope | 🟢 PASS |
-| **F12** | Streaming LLM Channel | M3 | 5 | Decoupled `StreamSink` channel trait; SSE delta parsing; `StreamChunk` enum variants; offline typewriter fallback | 🟢 PASS |
-| **F13** | Hotkey HUD Summon | M3 | 5 | Dedicated message pump thread (`GetMessageW`); registers `Alt + Q`, `Alt + D`, `Alt + W`; presentation latency < 20ms | 🟢 PASS |
-| **F14** | Typewriter Text Display | M3 | 5 | Incremental token accumulation; reactive property binding; smooth vertical ScrollView auto-scroll; 60fps event loop dispatch | 🟢 PASS |
-| **F15** | Multi-Turn Follow-up | M3 | 5 | Interactive `TextInput` bottom bar; callback submission; conversational message expansion; window title context preservation | 🟢 PASS |
-| **F16** | Idle RAM < 15MB Verification | M4 | 5 | Win32 PSAPI `GetProcessMemoryInfo` query; working set memory strictly < 15.0 MB; absence of WebView2 multi-process overhead | 🟢 PASS |
-| **F17** | XSS Injection Defense Tests | M4 | 5 | 100% defense against `<script>`, `<img onerror>`, `<svg onload>`, `<iframe>`, and event handler injection vectors | 🟢 PASS |
-| **F18** | Dual-Track Non-Interference | M4 | 5 | 14/14 `cargo test` pass; `npm run build` succeeds in 120ms; TypeScript `tsc --noEmit` clean; zero lockfile or build collisions | 🟢 PASS |
+## 3. Why 38 tests are skipped
 
----
+- **25 M2 Slint tests** (`F5`–`F9`): `crates/glint-hud` does not exist.
+  Previously these "passed" by asserting against text in `PROJECT.md`. They
+  are now marked `skip` with the reason "crates/glint-hud 未实现".
+- **13 M3/M4 placeholder tests**: latency and RAM assertions that only
+  compared constants, tautological tests with no runtime subject, and
+  `PROJECT.md` spec checks. They are marked `skip` rather than allowed to
+  report a false pass.
 
-## 4. How to Run the Tests
+A skipped test is not a pass.
 
-### Single Command (All 115 Tests)
+## 4. What is genuinely verified
+
+- Safe Markdown escaping and 54 adversarial XSS/formatting cases.
+- Unicode-safe 3000-character truncation boundaries (0/1/2999/3000/3001/50k).
+- Generative UI widget schemas and malformed-JSON resilience.
+- History store persistence/search/export.
+- `glint-core` unit tests: **15 passed** (`cargo test -p glint-core`).
+- Tauri shell unit tests: **17 passed** (`cargo test -p glint`).
+- Frontend production build: `pnpm build` passes (main JS 41.5 KB, 113 ms).
+- Full workspace type-check: `cargo check --workspace` passes.
+
+## 5. What is not verified yet
+
+- KGlobalAccel / portal global hotkey delivery on Wayland.
+- PRIMARY selection capture and clipboard non-pollution.
+- layer-shell placement, always-on-top, focus behaviour.
+- fcitx5 Chinese IME in the follow-up input.
+- Streaming first-token latency, p95 frame time, idle/streaming RSS.
+- Linux screen capture: the current non-Windows `capture_screen()` returns a
+  generated placeholder image, not a real screenshot.
+- Windows-only behaviour (code retained, not testable on this machine).
+
+## 6. How to reproduce
+
 ```bash
 node tests/e2e_runner.mjs
+pnpm test
+cargo test -p glint-core
+cargo check --workspace   # requires the Fedora dev headers above
 ```
-*Expected Output*: Formatted summary table displaying 115 passed test cases and exit code `0`.
-
-### Running Specific Tiers
-```bash
-node tests/e2e_runner.mjs --tier=1    # Tier 1 Feature Coverage (91 cases)
-node tests/e2e_runner.mjs --tier=2    # Tier 2 Boundary Cases (15 cases)
-node tests/e2e_runner.mjs --tier=3    # Tier 3 Combinations (5 cases)
-node tests/e2e_runner.mjs --tier=4    # Tier 4 Workloads (4 cases)
-```
-
-### Filtering by Milestone
-```bash
-node tests/e2e_runner.mjs --milestone=M1   # Run Milestone 1 tests
-node tests/e2e_runner.mjs --milestone=M2   # Run Milestone 2 tests
-node tests/e2e_runner.mjs --milestone=M3   # Run Milestone 3 tests
-node tests/e2e_runner.mjs --milestone=M4   # Run Milestone 4 tests
-```
-
----
-
-## 5. Security & System Invariants Verified
-
-1. **Zero Naked `innerHTML`**: Audited across `src/main.ts`; DOM clearing is handled via `emptyElement` / `replaceChildren`, and streaming markdown output passes exclusively through `renderSafeMarkdown`.
-2. **Complete XSS Neutralization**: Verified against an adversarial matrix of 8 distinct attack vectors including `<script>`, `<img src=x onerror=...>`, `<svg onload=...>`, `<iframe src="javascript:...">`, and nested malformed markup.
-3. **Unicode Context Boundary**: Truncates text exceeding 3000 Unicode characters safely without splitting astral plane surrogate pairs or emoji sequences.
-4. **Platform & Shortcuts Documentation Alignment**: `README.md` accurately documents Windows as Tier-1 production, macOS/Linux as experimental, and includes the `Alt + W` shortcut in the guidance table.
-5. **Pure Native GUI & Memory Guard**: Verifies the Slint HUD architecture specification with `renderer-femtovg`, Obsidian acrylic aesthetics, < 15MB RAM target, and < 20ms invocation latency.
-6. **Dual-Track Non-Interference**: Verified simultaneous execution of `cargo test` in `src-tauri` (14 passing tests) and `npm run build` (Vite bundling without errors).

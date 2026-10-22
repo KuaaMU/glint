@@ -3,5 +3,3 @@
 fn main() {
     glint_lib::run();
 }
-
-

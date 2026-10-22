@@ -18,6 +18,14 @@ futures-util = "0.3"
 arboard = "3"
 base64 = "0.22"
 image = { version = "0.25", default-features = false, features = ["png"] }
+thiserror = "2"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+wl-clipboard-rs = "0.9"
+x11-clipboard = "0.9"
+ashpd = { version = "0.13", features = ["global_shortcuts", "screenshot"] }
+zbus = { version = "5", default-features = false, features = ["tokio"] }
+libc = "0.2"
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.59", features = [

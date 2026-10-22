@@ -1,0 +1,14 @@
+[package]
+name = "glint-cli"
+version = "0.1.0"
+edition = "2024"
+description = "Headless harness for Glint core engines"
+
+[[bin]]
+name = "glint-cli"
+path = "src/main.rs"
+
+[dependencies]
+glint-core = { path = "../glint-core" }
+tokio = { version = "1", features = ["full"] }
+base64 = "0.22"

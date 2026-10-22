@@ -112,29 +112,73 @@ import {
   renderCalloutWidget,
 } from "./generative-ui.ts";
 
+/**
+ * Infer a widget from the fenced block's language tag OR from its JSON shape.
+ *
+ * Models frequently emit ```json (or no tag at all) for a widget payload. The
+ * shape check keeps those payloads from degrading into a raw JSON code block:
+ * `columns` + `rows` is a comparison matrix, `steps` a flow, `items` a metric
+ * grid, and a lone `content` a callout.
+ */
+function inferWidgetType(lang: string, rawContent: string): string | null {
+  const trimmedLang = lang.trim().toLowerCase();
+  if (trimmedLang.startsWith("widget:")) {
+    const declared = trimmedLang.slice("widget:".length).trim();
+    if (declared === "timeline") return "flow";
+    if (declared === "keyvals") return "metrics";
+    return declared;
+  }
+
+  const looksLikeWidget =
+    trimmedLang === "" || trimmedLang === "json" || trimmedLang === "widget";
+  if (!looksLikeWidget) return null;
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(rawContent);
+  } catch {
+    return null;
+  }
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+    return null;
+  }
+
+  const record = parsed as Record<string, unknown>;
+  if (Array.isArray(record.columns) && Array.isArray(record.rows)) return "compare";
+  if (Array.isArray(record.steps)) return "flow";
+  if (Array.isArray(record.items)) return "metrics";
+  if (typeof record.content === "string" && typeof record.type === "string") {
+    return "callout";
+  }
+  return null;
+}
+
 function renderWidgetOrCodeBlock(lang: string, lines: string[]): string {
   const trimmedLang = lang.trim();
   const rawContent = lines.join("\n");
 
-  if (trimmedLang.startsWith("widget:")) {
-    const wType = trimmedLang.slice("widget:".length).trim().toLowerCase();
-    switch (wType) {
-      case "compare":
-        return renderCompareWidget(rawContent);
-      case "flow":
-      case "timeline":
-        return renderFlowWidget(rawContent);
-      case "metrics":
-      case "keyvals":
-        return renderMetricsWidget(rawContent);
-      case "callout":
-        return renderCalloutWidget(rawContent);
-    }
+  switch (inferWidgetType(trimmedLang, rawContent)) {
+    case "compare":
+      return renderCompareWidget(rawContent);
+    case "flow":
+      return renderFlowWidget(rawContent);
+    case "metrics":
+      return renderMetricsWidget(rawContent);
+    case "callout":
+      return renderCalloutWidget(rawContent);
   }
 
   const escapedCode = lines.map((l) => escapeHtml(l)).join("\n");
   const langAttr = trimmedLang ? ` data-lang="${escapeHtml(trimmedLang)}"` : ` data-lang=""`;
-  return `<pre class="glint-code-block"><code${langAttr}>${escapedCode}</code></pre>`;
+  // `data-code` carries the exact text so the copy button never has to read
+  // back through the DOM (which would re-decode entities and lose newlines).
+  //
+  // `encodeURIComponent` leaves `'` unescaped, which would then be entity-
+  // encoded by escapeHtml and come back as the literal string "&#39;" when
+  // read from `dataset`. Escaping it here keeps the attribute to
+  // percent-escapes and alphanumerics, so no HTML escaping is needed at all.
+  const encodedCode = encodeURIComponent(rawContent).replace(/'/g, "%27");
+  return `<div class="glint-code-shell"><pre class="glint-code-block"><code${langAttr}>${escapedCode}</code></pre><button class="glint-copy-btn" type="button" data-code="${encodedCode}" title="复制代码">复制</button></div>`;
 }
 
 export function renderSafeMarkdown(markdown: string): string {
@@ -258,6 +302,7 @@ export function renderSafeMarkdown(markdown: string): string {
   // 拼接 HTML 块
   let html = "";
   const isBlockElement = (block: string): boolean =>
+    block.startsWith('<div class="glint-code-shell"') ||
     block.startsWith('<pre class="glint-code-block"') ||
     block.startsWith('<ul class="') ||
     block.startsWith('<ol class="') ||
@@ -269,7 +314,10 @@ export function renderSafeMarkdown(markdown: string): string {
   for (let i = 0; i < processedBlocks.length; i++) {
     const part = processedBlocks[i];
     if (part === "") {
-      html += "<br/>";
+      // A leading blank line is an artifact of splitting a string that starts
+      // with "\n", not a visual line break. Emitting it would make
+      // renderSafeMarkdown("\n") produce two <br/> instead of the contracted one.
+      if (i > 0) html += "<br/>";
       continue;
     }
 

@@ -4,7 +4,6 @@ use std::process::Command;
 use std::thread::sleep;
 #[cfg(target_os = "linux")]
 use std::time::Duration;
-use tauri::AppHandle;
 
 #[cfg(target_os = "linux")]
 pub fn get_cursor_position() -> (i32, i32) {
@@ -18,10 +17,10 @@ pub fn get_cursor_position() -> (i32, i32) {
                 if let Ok(v) = val.parse::<i32>() {
                     x = v;
                 }
-            } else if let Some(val) = part.strip_prefix("y:") {
-                if let Ok(v) = val.parse::<i32>() {
-                    y = v;
-                }
+            } else if let Some(val) = part.strip_prefix("y:")
+                && let Ok(v) = val.parse::<i32>()
+            {
+                y = v;
             }
         }
         return (x, y);
@@ -31,7 +30,10 @@ pub fn get_cursor_position() -> (i32, i32) {
 
 #[cfg(target_os = "linux")]
 pub fn get_active_window_title() -> String {
-    if let Ok(out) = Command::new("xdotool").args(["getactivewindow", "getwindowname"]).output() {
+    if let Ok(out) = Command::new("xdotool")
+        .args(["getactivewindow", "getwindowname"])
+        .output()
+    {
         String::from_utf8_lossy(&out.stdout).trim().to_string()
     } else {
         String::new()
@@ -62,23 +64,3 @@ pub fn simulate_copy() {
 #[cfg(not(target_os = "linux"))]
 #[allow(dead_code)]
 pub fn simulate_copy() {}
-
-#[cfg(target_os = "linux")]
-pub fn spawn_global_hotkeys(
-    app_handle: AppHandle,
-    _trigger_fn: fn(&AppHandle),
-    _toggle_fn: fn(&AppHandle),
-    _snipping_fn: fn(&AppHandle),
-) {
-    // Linux 全局热键线程：XGrabKey (X11) 或 org.freedesktop.portal.GlobalShortcuts (Wayland)
-    println!("[Linux] Glint hotkeys initialized for Linux");
-}
-
-#[cfg(not(target_os = "linux"))]
-#[allow(dead_code)]
-pub fn spawn_global_hotkeys(
-    _app_handle: AppHandle,
-    _trigger_fn: fn(&AppHandle),
-    _toggle_fn: fn(&AppHandle),
-    _snipping_fn: fn(&AppHandle),
-) {}

@@ -1,8 +1,12 @@
 # ADR 0011: 纯原生 Slint 硬件加速视窗与深模块内核解耦架构
 
-**状态:** Accepted  
-**日期:** 2026-10-13  
-**决策者:** System Architect, Core Engineer, Performance Specialist  
+**状态:** Superseded (by ADR 0012; Slint retained as a gated spike)
+
+**日期:** 2026-10-13
+
+**取代:** 2026-10-19，见 `docs/adr/0012-linux-native-companion-architecture.md`
+
+**决策者:** System Architect, Core Engineer, Performance Specialist
 
 ---
 

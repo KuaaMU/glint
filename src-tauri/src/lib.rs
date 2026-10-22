@@ -697,7 +697,7 @@ pub fn run() {
                 let _ = window.hide();
 
                 // Alt+F4 on the snip overlay is a cancel. The trigger hid the
-                // HUD before the capture, so this path must restore it too —
+                // HUD before the capture, so this path must restore it too.
                 // otherwise the companion card stays hidden after a cancel
                 // that did not go through `close_snipping_tool`.
                 if window.label() == "snipping"

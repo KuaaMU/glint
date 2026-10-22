@@ -5,9 +5,9 @@
 //!
 //! Wayland does not let a client position a normal toplevel window, so the
 //! caller decides between:
-//!   * `Native`  — the compositor places it (current behaviour);
-//!   * `XWayland`— GDK_BACKEND=x11, absolute coordinates work;
-//!   * `LayerShell` — a margin-anchored overlay (handled by the window shell).
+//!   * `Native`: the compositor places it (current behaviour);
+//!   * `XWayland`: GDK_BACKEND=x11, absolute coordinates work;
+//!   * `LayerShell`: a margin-anchored overlay (handled by the window shell).
 //!
 //! This module holds the pure geometry so it is testable without a display.
 

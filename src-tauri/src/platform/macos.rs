@@ -35,7 +35,7 @@ pub fn get_active_window_title() -> String {
 /// Frontmost app and its window title.
 ///
 /// The bundle identifier (`com.google.Chrome`, `com.microsoft.VSCode`) is a
-/// stable, non-content app identity — exactly what thread continuity needs.
+/// stable, non-content app identity, which is what thread continuity needs.
 /// The title is user content and stays in memory only.
 #[cfg(target_os = "macos")]
 pub fn get_active_window_identity() -> glint_core::HostIdentity {

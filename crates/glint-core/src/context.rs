@@ -163,7 +163,7 @@ pub fn sanitize_selection(raw: &str, max_chars: usize) -> (String, bool) {
 /// The frozen session header: stable for the whole thread.
 ///
 /// Built once when the thread starts. If the user switches documents the
-/// header must be rebuilt *and a new thread started* — rewriting it mid-thread
+/// header must be rebuilt *and a new thread started*. Rewriting it mid-thread
 /// would invalidate the provider's prefix cache on every request.
 pub fn session_header(envelope: &ContextEnvelope) -> String {
     let mut header = String::from("【宿主场景】\n");

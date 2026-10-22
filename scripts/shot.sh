@@ -4,7 +4,7 @@
 # Why this exists: a full 2987x3280 screenshot read into an agent's context is
 # expensive, and the image is not in the same coordinate space as the window
 # geometry the app reports (Spectacle may scale it). This script crops by
-# *physical desktop coordinates* — the same space `Tauri` and `xrandr` use —
+# *physical desktop coordinates*, the same space `Tauri` and `xrandr` use,
 # and figures out the scale itself.
 #
 # Usage:

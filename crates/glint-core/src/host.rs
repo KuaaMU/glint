@@ -4,9 +4,9 @@
 //! ("GitHub - PR #12" changes on every tab) and sensitive. `HostIdentity`
 //! therefore splits what travels with the prompt from what never leaves RAM:
 //!
-//! * `app_class` — stable, safe to persist ("firefox", "code", "okular").
-//! * `title` — RAM only, used for the HUD badge; never serialised.
-//! * `doc_key` — a short digest of the normalised title, used to decide
+//! * `app_class`: stable, safe to persist ("firefox", "code", "okular").
+//! * `title`: RAM only, used for the HUD badge, never serialised.
+//! * `doc_key`: a short digest of the normalised title, used to decide
 //!   whether two triggers belong to the same reading thread.
 //!
 //! Nothing here sends a title to the model. The caller decides that.

@@ -532,7 +532,7 @@ function startNewMultimodalQuery(
 ) {
   runTurn(() => {
     // Only the snip's own identity counts. Falling back to the open thread's
-    // identity would attach a snip from app B to app A's history — the exact
+    // identity would attach a snip from app B to app A's history, the exact
     // bleed this model exists to prevent.
     const identity = {
       appClass: (host?.appClass || "").trim().toLowerCase(),
@@ -1043,7 +1043,7 @@ window.addEventListener("keydown", async (e) => {
       toggleHistoryDeck(false);
       return;
     }
-    // Escape always dismisses, even when pinned — pin only suppresses
+    // Escape always dismisses, even when pinned. Pin only suppresses
     // automatic hiding, never an explicit user action.
     if (isTauri()) {
       await invoke("hide_window");

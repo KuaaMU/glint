@@ -190,7 +190,25 @@ pub fn generate_fallback_capture(width: u32, height: u32, x: i32, y: i32) -> Scr
     }
 }
 
-#[cfg(not(target_os = "windows"))]
+/// macOS: one image of the main display, positioned at the global origin.
+#[cfg(target_os = "macos")]
+pub fn capture_screen() -> Result<ScreenCaptureResult, String> {
+    let frame = crate::screen::capture_via_screencapture().map_err(|err| err.to_string())?;
+    Ok(ScreenCaptureResult {
+        image_data_url: frame.image_data_url,
+        geometry: ScreenGeometry {
+            x: 0,
+            y: 0,
+            width: frame.width,
+            height: frame.height,
+        },
+        window_title: crate::platform::get_active_window_title_opt(),
+    })
+}
+
+/// Linux uses the XDG screenshot portal from the shell, so this placeholder is
+/// only reachable through `glint-cli screen`, which calls the portal directly.
+#[cfg(not(any(target_os = "windows", target_os = "macos")))]
 pub fn capture_screen() -> Result<ScreenCaptureResult, String> {
     Ok(generate_fallback_capture(800, 600, 0, 0))
 }

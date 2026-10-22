@@ -16,8 +16,8 @@ use std::time::Duration;
 #[cfg(test)]
 pub use glint_core::encode_rgba_to_png_data_url;
 pub use glint_core::{ScreenCaptureResult, SelectionResult};
-// Only the non-Windows placeholder screenshot uses this.
-#[cfg(not(target_os = "windows"))]
+// Only the placeholder screenshot above uses this.
+#[cfg(not(any(target_os = "windows", target_os = "macos")))]
 pub use glint_core::generate_fallback_capture;
 
 #[cfg(not(target_os = "linux"))]
@@ -28,10 +28,14 @@ pub fn capture_screen() -> Result<ScreenCaptureResult, String> {
     glint_core::capture::capture_screen()
 }
 
-#[cfg(not(target_os = "windows"))]
+#[cfg(target_os = "macos")]
 pub fn capture_screen() -> Result<ScreenCaptureResult, String> {
-    // TODO(P2): replace with xdg-desktop-portal Screenshot on Linux. Until then
-    // this is an explicit placeholder, not a screenshot.
+    glint_core::capture::capture_screen()
+}
+
+// Linux never reaches this: `trigger_snipping_and_show` uses the XDG portal.
+#[cfg(not(any(target_os = "windows", target_os = "macos")))]
+pub fn capture_screen() -> Result<ScreenCaptureResult, String> {
     Ok(generate_fallback_capture(800, 600, 0, 0))
 }
 

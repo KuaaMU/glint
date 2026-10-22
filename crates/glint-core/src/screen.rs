@@ -22,6 +22,10 @@ pub enum ScreenError {
     Unavailable(String),
     #[error("screen capture was cancelled or denied")]
     Denied,
+    #[error(
+        "screen recording permission is not granted; enable it in System Settings > Privacy & Security > Screen Recording"
+    )]
+    PermissionDenied,
     #[error("screen capture failed: {0}")]
     Failed(String),
 }
@@ -132,6 +136,13 @@ pub async fn capture_via_portal() -> Result<CapturedFrame, ScreenError> {
 pub fn capture_via_screencapture() -> Result<CapturedFrame, ScreenError> {
     use std::process::Command;
 
+    // `screencapture` exits 0 even when the process lacks Screen Recording
+    // access; it just returns an image of the desktop wallpaper. Preflight the
+    // permission so the user gets an error instead of a useless capture.
+    if !macos_screen_capture_access() {
+        return Err(ScreenError::PermissionDenied);
+    }
+
     let path = std::env::temp_dir().join(format!(
         "glint-screen-{}-{}.png",
         std::process::id(),
@@ -161,6 +172,19 @@ pub fn capture_via_screencapture() -> Result<CapturedFrame, ScreenError> {
     // The temp file is ours; never leave it behind.
     let _ = std::fs::remove_file(&path);
     frame
+}
+
+#[cfg(target_os = "macos")]
+fn macos_screen_capture_access() -> bool {
+    #[link(name = "CoreGraphics", kind = "framework")]
+    unsafe extern "C" {
+        /// Available since macOS 10.15. Returns whether this process may read
+        /// screen contents; it does not prompt.
+        fn CGPreflightScreenCaptureAccess() -> bool;
+    }
+
+    // SAFETY: no arguments, no pointers, no lifetime concerns.
+    unsafe { CGPreflightScreenCaptureAccess() }
 }
 
 #[cfg(not(target_os = "macos"))]

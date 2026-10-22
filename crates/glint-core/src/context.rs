@@ -308,6 +308,17 @@ mod tests {
     }
 
     #[test]
+    fn missing_app_anchor_never_continues() {
+        // Time alone is not evidence of continuity: two unrelated selections a
+        // minute apart look identical under a timer, and continuing would send
+        // the other document's history to the model.
+        let anonymous = HostIdentity::default();
+        let env = envelope(anonymous.clone(), TurnSelection::Text, 10_000);
+        let cont = continuity(anonymous, 5_000, 1);
+        assert_eq!(plan_turn(&env, Some(&cont)), TurnPlan::NewThread);
+    }
+
+    #[test]
     fn new_document_starts_a_thread() {
         let previous = HostIdentity::new("firefox", Some("Tokio - Mozilla Firefox".into()));
         let current = HostIdentity::new("firefox", Some("Rust book - Mozilla Firefox".into()));

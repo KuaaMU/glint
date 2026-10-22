@@ -119,22 +119,62 @@ fn wayland_primary() -> Result<String, CaptureError> {
         events: libc::POLLIN,
         revents: 0,
     };
-    // SAFETY: poll_fd is a valid, initialized pollfd for the duration of the call.
-    let ready = unsafe { libc::poll(&mut poll_fd, 1, READ_TIMEOUT_MS) };
-    if ready == 0 {
-        return Err(CaptureError::Timeout);
-    }
-    if ready < 0 {
-        return Err(CaptureError::Io(
-            std::io::Error::last_os_error().to_string(),
-        ));
-    }
 
+    // The deadline covers the whole read, not just the first byte. A selection
+    // owner may write one byte and then stall; `read_to_end` would then block
+    // this synchronous path (which runs on the hotkey trigger) indefinitely.
+    // Poll before every chunk and stop at the deadline or the size cap.
+    let deadline =
+        std::time::Instant::now() + std::time::Duration::from_millis(READ_TIMEOUT_MS.max(0) as u64);
     let mut buffer = Vec::with_capacity(4096);
-    pipe.by_ref()
-        .take(MAX_RAW_BYTES as u64)
-        .read_to_end(&mut buffer)
-        .map_err(|err| CaptureError::Io(err.to_string()))?;
+    let mut chunk = [0u8; 8192];
+
+    loop {
+        let remaining = deadline.saturating_duration_since(std::time::Instant::now());
+        if remaining.is_zero() {
+            if buffer.is_empty() {
+                return Err(CaptureError::Timeout);
+            }
+            break;
+        }
+
+        poll_fd.revents = 0;
+        // SAFETY: poll_fd is a valid, initialized pollfd for the duration of the call.
+        let ready = unsafe {
+            libc::poll(
+                &mut poll_fd,
+                1,
+                remaining.as_millis().min(i32::MAX as u128) as i32,
+            )
+        };
+        if ready == 0 {
+            if buffer.is_empty() {
+                return Err(CaptureError::Timeout);
+            }
+            break;
+        }
+        if ready < 0 {
+            let err = std::io::Error::last_os_error();
+            if err.kind() == std::io::ErrorKind::Interrupted {
+                continue;
+            }
+            return Err(CaptureError::Io(err.to_string()));
+        }
+
+        match pipe.read(&mut chunk) {
+            Ok(0) => break, // EOF: the owner is done.
+            Ok(read) => {
+                buffer.extend_from_slice(&chunk[..read]);
+                if buffer.len() >= MAX_RAW_BYTES {
+                    buffer.truncate(MAX_RAW_BYTES);
+                    break;
+                }
+            }
+            Err(err) if err.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(err) if err.kind() == std::io::ErrorKind::WouldBlock => continue,
+            Err(err) => return Err(CaptureError::Io(err.to_string())),
+        }
+    }
 
     String::from_utf8(buffer)
         .map_err(|err| CaptureError::Io(format!("selection is not valid UTF-8: {err}")))

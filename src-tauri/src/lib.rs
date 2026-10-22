@@ -695,6 +695,17 @@ pub fn run() {
             {
                 api.prevent_close();
                 let _ = window.hide();
+
+                // Alt+F4 on the snip overlay is a cancel. The trigger hid the
+                // HUD before the capture, so this path must restore it too —
+                // otherwise the companion card stays hidden after a cancel
+                // that did not go through `close_snipping_tool`.
+                if window.label() == "snipping"
+                    && HUD_VISIBLE_BEFORE_SNIP.swap(false, std::sync::atomic::Ordering::SeqCst)
+                    && let Some(hud) = window.app_handle().get_webview_window("hud")
+                {
+                    let _ = hud.show();
+                }
             }
         })
         .invoke_handler(tauri::generate_handler![

@@ -102,10 +102,6 @@ let currentHostTitle: string | null = null;
 const CONTINUE_WINDOW_MS = 30 * 60 * 1000;
 const SCREENSHOT_WINDOW_MS = 5 * 60 * 1000;
 const MAX_CONTINUED_TURNS = 8;
-// Used only when the platform cannot report an application class. Shorter than
-// the anchored windows because there is no document identity to rely on.
-const FALLBACK_TEXT_WINDOW_MS = 10 * 60 * 1000;
-const FALLBACK_SCREENSHOT_WINDOW_MS = 2 * 60 * 1000;
 
 interface ThreadState {
   appClass: string;
@@ -115,6 +111,29 @@ interface ThreadState {
 }
 
 let currentThread: ThreadState | null = null;
+
+// One request at a time. A second trigger arriving before the first `Done`
+// would otherwise leave two live channel handlers appending to the same
+// transcript, producing histories like U1, U2, A1, A2 instead of alternating
+// turns. The newest trigger replaces any still-queued one.
+let turnInFlight = false;
+let queuedTurn: (() => void) | null = null;
+
+function runTurn(start: () => void) {
+  if (turnInFlight) {
+    queuedTurn = start;
+    return;
+  }
+  start();
+}
+
+function finishTurn() {
+  if (!turnInFlight) return;
+  turnInFlight = false;
+  const next = queuedTurn;
+  queuedTurn = null;
+  if (next) next();
+}
 // 冻结的宿主标签：一条线索建立时确定，之后不再改写，保证提示词前缀稳定、
 // 也避免把完整窗口标题（可能含敏感信息）送给模型。
 let frozenHostLabel: string | null = null;
@@ -135,26 +154,14 @@ function shouldContinueThread(
 ): boolean {
   if (!currentThread || conversationMessages.length === 0) return false;
 
-  // Platforms that cannot report an app class (Windows/macOS today) fall back
-  // to a short time window: continuity is weaker there, but it still works,
-  // and the turn limit keeps unrelated selections from piling up.
-  if (!host.appClass) {
-    if (currentThread.turnCount >= MAX_CONTINUED_TURNS) return false;
-    const fallbackWindow =
-      trigger === "screenshot" ? FALLBACK_SCREENSHOT_WINDOW_MS : FALLBACK_TEXT_WINDOW_MS;
-    return now - currentThread.lastTurnAt <= fallbackWindow;
-  }
+  // No anchor means no evidence of continuity. Time alone is not evidence:
+  // two unrelated selections a minute apart look identical under a timer, and
+  // the cost of wrongly continuing (another document's history reaches the
+  // model) is higher than the cost of starting over.
+  if (!host.appClass || !currentThread.appClass) return false;
 
   // 应用类别不同，一定不续接。
   if (host.appClass !== currentThread.appClass) return false;
-
-  // The previous thread was started without a class (e.g. restored from an
-  // older record); the time window is the only signal left.
-  if (!currentThread.appClass) {
-    const fallbackWindow =
-      trigger === "screenshot" ? FALLBACK_SCREENSHOT_WINDOW_MS : FALLBACK_TEXT_WINDOW_MS;
-    return now - currentThread.lastTurnAt <= fallbackWindow;
-  }
 
   if (currentThread.turnCount >= MAX_CONTINUED_TURNS) return false;
   if (currentThread.docKey && host.docKey && currentThread.docKey !== host.docKey) return false;
@@ -237,6 +244,7 @@ async function executeExplain(
 ) {
   if (sessionId !== activeSessionId) return;
 
+  turnInFlight = true;
   statusIndicator.style.display = "inline-flex";
 
   const onEvent = new Channel<StreamChunk>();
@@ -286,10 +294,12 @@ async function executeExplain(
 
       // 持久化保存至本地历史存储
       saveCurrentSessionToHistory(fullTurnText);
+      finishTurn();
     } else if (chunk.type === "Error") {
       statusIndicator.style.display = "none";
       const errNotice = typeof chunk.data === "string" ? chunk.data : "请求出错";
       pipeline.reportError(errNotice);
+      finishTurn();
     }
   };
 
@@ -313,6 +323,7 @@ async function executeExplain(
         statusIndicator.style.display = "none";
         targetOutputEl.textContent = `调用错误: ${err}`;
       }
+      finishTurn();
     }
   } else {
     // 浏览器独立预览模式模拟
@@ -472,34 +483,38 @@ function startNewQuery(
   windowTitle?: string | null,
   host?: { appClass?: string | null; docKey?: string | null }
 ) {
-  const truncatedResult = truncateSelection(text, 3000);
-  updateTruncationUI(truncatedResult.truncated, truncatedResult.originalLen);
-  updateHostBadge(windowTitle);
+  // Queued if a previous answer is still streaming: the turn is appended to the
+  // transcript only when it actually starts, so the history stays alternating.
+  runTurn(() => {
+    const truncatedResult = truncateSelection(text, 3000);
+    updateTruncationUI(truncatedResult.truncated, truncatedResult.originalLen);
+    updateHostBadge(windowTitle);
 
-  const identity = {
-    appClass: (host?.appClass || "").trim().toLowerCase(),
-    docKey: host?.docKey || null,
-  };
-  const continuing = shouldContinueThread(identity, "text", Date.now());
+    const identity = {
+      appClass: (host?.appClass || "").trim().toLowerCase(),
+      docKey: host?.docKey || null,
+    };
+    const continuing = shouldContinueThread(identity, "text", Date.now());
 
-  if (!continuing) {
-    activeSessionId++;
-    currentSessionId = `glint_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
-    currentSessionCreatedAt = Date.now();
-    currentSessionIsMultimodal = false;
-    currentSessionImageDataUrl = "";
-    resetThread();
-    frozenHostLabel = hostLabelFor(windowTitle ?? null, identity.appClass);
-    conversationMessages = [{ role: "user", content: truncatedResult.text }];
-    executeExplain(conversationMessages, activeSessionId);
-  } else {
-    conversationMessages.push({ role: "user", content: truncatedResult.text });
-    executeExplain(conversationMessages, activeSessionId, undefined, {
-      label: `再次划词 · 第 ${(currentThread?.turnCount ?? 0) + 1} 轮`,
-    });
-  }
+    if (!continuing) {
+      activeSessionId++;
+      currentSessionId = `glint_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+      currentSessionCreatedAt = Date.now();
+      currentSessionIsMultimodal = false;
+      currentSessionImageDataUrl = "";
+      resetThread();
+      frozenHostLabel = hostLabelFor(windowTitle ?? null, identity.appClass);
+      conversationMessages = [{ role: "user", content: truncatedResult.text }];
+      executeExplain(conversationMessages, activeSessionId);
+    } else {
+      conversationMessages.push({ role: "user", content: truncatedResult.text });
+      executeExplain(conversationMessages, activeSessionId, undefined, {
+        label: `再次划词 · 第 ${(currentThread?.turnCount ?? 0) + 1} 轮`,
+      });
+    }
 
-  rememberThread(identity, continuing);
+    rememberThread(identity, continuing);
+  });
 }
 
 // 开始多模态截图透视会话
@@ -515,69 +530,74 @@ function startNewMultimodalQuery(
   windowTitle?: string | null,
   host?: { appClass?: string | null; docKey?: string | null }
 ) {
-  const identity = {
-    appClass: (host?.appClass || currentThread?.appClass || "").trim().toLowerCase(),
-    docKey: host?.docKey || currentThread?.docKey || null,
-  };
-  // 截图沿用与划词相同的线索规则，但续接窗口更短：截图通常意味着
-  // 「我在看这个」而不是「我还在读同一段」。
-  const continuing = shouldContinueThread(identity, "screenshot", Date.now());
+  runTurn(() => {
+    // Only the snip's own identity counts. Falling back to the open thread's
+    // identity would attach a snip from app B to app A's history — the exact
+    // bleed this model exists to prevent.
+    const identity = {
+      appClass: (host?.appClass || "").trim().toLowerCase(),
+      docKey: host?.docKey || null,
+    };
+    // 截图沿用与划词相同的线索规则，但续接窗口更短：截图通常意味着
+    // 「我在看这个」而不是「我还在读同一段」。
+    const continuing = shouldContinueThread(identity, "screenshot", Date.now());
 
-  if (!continuing) {
-    activeSessionId++;
-    currentSessionId = `glint_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
-    currentSessionCreatedAt = Date.now();
-    resetThread();
-    frozenHostLabel = hostLabelFor(windowTitle ?? currentHostTitle, identity.appClass);
-  }
-  currentSessionIsMultimodal = true;
-  currentSessionImageDataUrl = imageDataUrl;
+    if (!continuing) {
+      activeSessionId++;
+      currentSessionId = `glint_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+      currentSessionCreatedAt = Date.now();
+      resetThread();
+      frozenHostLabel = hostLabelFor(windowTitle ?? currentHostTitle, identity.appClass);
+    }
+    currentSessionIsMultimodal = true;
+    currentSessionImageDataUrl = imageDataUrl;
 
-  updateTruncationUI(false, 0);
-  updateHostBadge(windowTitle || currentHostTitle, "屏幕透视");
+    updateTruncationUI(false, 0);
+    updateHostBadge(windowTitle || currentHostTitle, "屏幕透视");
 
-  const defaultPrompt = prompt || "请分析所选屏幕区域的内容，一针见血透视核心本质与关键信息。";
-  const imageTurn: ChatMessage = {
-    role: "user",
-    content: [
-      { type: "text", text: defaultPrompt },
-      { type: "image_url", image_url: { url: imageDataUrl } },
-    ],
-  };
+    const defaultPrompt = prompt || "请分析所选屏幕区域的内容，一针见血透视核心本质与关键信息。";
+    const imageTurn: ChatMessage = {
+      role: "user",
+      content: [
+        { type: "text", text: defaultPrompt },
+        { type: "image_url", image_url: { url: imageDataUrl } },
+      ],
+    };
 
-  if (continuing) {
-    conversationMessages.push(imageTurn);
-    appendThreadDivider(`截图 · 接在当前线索后 · ${currentThread?.turnCount ?? 1} 轮`);
-  } else {
-    conversationMessages = [imageTurn];
-    // 渲染截图缩略图横幅 (安全 DOM 构建)
-    emptyElement(explanationText);
-  }
+    if (continuing) {
+      conversationMessages.push(imageTurn);
+      appendThreadDivider(`截图 · 接在当前线索后 · ${currentThread?.turnCount ?? 1} 轮`);
+    } else {
+      conversationMessages = [imageTurn];
+      // 渲染截图缩略图横幅 (安全 DOM 构建)
+      emptyElement(explanationText);
+    }
 
-  rememberThread(identity, continuing);
+    rememberThread(identity, continuing);
 
-  const banner = document.createElement("div");
-  banner.className = "capture-preview-banner";
+    const banner = document.createElement("div");
+    banner.className = "capture-preview-banner";
 
-  const img = document.createElement("img");
-  img.src = imageDataUrl;
-  img.alt = "截屏预览";
+    const img = document.createElement("img");
+    img.src = imageDataUrl;
+    img.alt = "截屏预览";
 
-  const badge = document.createElement("span");
-  badge.className = "preview-badge";
-  badge.textContent = "✨ 视觉透视";
+    const badge = document.createElement("span");
+    badge.className = "preview-badge";
+    badge.textContent = "✨ 视觉透视";
 
-  banner.appendChild(img);
-  banner.appendChild(badge);
+    banner.appendChild(img);
+    banner.appendChild(badge);
 
-  const replyTurnEl = document.createElement("div");
-  replyTurnEl.className = "reply-turn";
+    const replyTurnEl = document.createElement("div");
+    replyTurnEl.className = "reply-turn";
 
-  explanationText.appendChild(banner);
-  explanationText.appendChild(replyTurnEl);
+    explanationText.appendChild(banner);
+    explanationText.appendChild(replyTurnEl);
 
-  executeExplain(conversationMessages, activeSessionId, replyTurnEl);
-  followupInput.focus();
+    executeExplain(conversationMessages, activeSessionId, replyTurnEl);
+    followupInput.focus();
+  });
 }
 
 // 发送深入追问
@@ -586,13 +606,15 @@ function sendFollowup() {
   if (!q) return;
   followupInput.value = "";
 
-  conversationMessages.push({ role: "user", content: q });
-  if (currentThread) {
-    // A typed question counts as a turn for the continuation limit, but it
-    // does not extend the idle window on its own (the answer's Done does).
-    currentThread.turnCount += 1;
-  }
-  executeExplain(conversationMessages, activeSessionId);
+  runTurn(() => {
+    conversationMessages.push({ role: "user", content: q });
+    if (currentThread) {
+      // A typed question counts as a turn for the continuation limit, but it
+      // does not extend the idle window on its own (the answer's Done does).
+      currentThread.turnCount += 1;
+    }
+    executeExplain(conversationMessages, activeSessionId);
+  });
 }
 
 // 拖拽窗口

@@ -27,6 +27,9 @@ interface ScreenCaptureResult {
   monitor?: ScreenGeometry;
   geometry?: ScreenGeometry;
   window_title?: string | null;
+  /** Host identity captured with the frame, forwarded on submit. */
+  app_class?: string | null;
+  doc_key?: string | null;
 }
 
 interface Rect {
@@ -334,6 +337,11 @@ function updateSelectionBoxUI() {
 }
 
 let currentWindowTitle: string | null = null;
+// Host identity travels with the frame. Forwarding only the title made the HUD
+// fall back to whatever thread was already open, so a snip from a different
+// app was appended to the previous document's history.
+let currentAppClass: string | null = null;
+let currentDocKey: string | null = null;
 let lastCapture: ScreenCaptureResult | null = null;
 
 // 初始化截屏数据载入
@@ -344,6 +352,8 @@ function loadCaptureData(capture: ScreenCaptureResult) {
   drawDrawer.style.display = "none";
   btnToggleDraw.classList.remove("active");
   currentWindowTitle = capture.window_title || null;
+  currentAppClass = capture.app_class || null;
+  currentDocKey = capture.doc_key || null;
   lastCapture = capture;
   bgSource = { x: 0, y: 0, width: 0, height: 0 };
   windowPhysical = null;
@@ -647,6 +657,8 @@ async function submitSelection() {
         imageDataUrl: croppedDataUrl,
         prompt: "请分析此屏幕截图区域，直击关键信息与核心本质。",
         windowTitle: currentWindowTitle,
+        appClass: currentAppClass,
+        docKey: currentDocKey,
       });
     } catch (err) {
       console.error("提交截屏结果失败:", err);

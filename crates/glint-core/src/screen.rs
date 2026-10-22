@@ -118,6 +118,58 @@ pub async fn capture_via_portal() -> Result<CapturedFrame, ScreenError> {
     ))
 }
 
+/// Capture the main display with Apple's `screencapture`.
+///
+/// `screencapture -x` is the only path that works without linking
+/// ScreenCaptureKit or asking for a custom permission prompt. It needs the
+/// Screen Recording permission; without it macOS either fails or returns a
+/// desktop-only image, and we cannot tell those apart from the exit code.
+///
+/// Multi-display Macs capture the main display only. The overlay and the crop
+/// use the image's own size, so the result is correct, just limited to one
+/// screen.
+#[cfg(target_os = "macos")]
+pub fn capture_via_screencapture() -> Result<CapturedFrame, ScreenError> {
+    use std::process::Command;
+
+    let path = std::env::temp_dir().join(format!(
+        "glint-screen-{}-{}.png",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis())
+            .unwrap_or(0)
+    ));
+
+    let output = Command::new("/usr/sbin/screencapture")
+        .args(["-x", "-t", "png"])
+        .arg(&path)
+        .output()
+        .map_err(|err| ScreenError::Unavailable(err.to_string()))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        let _ = std::fs::remove_file(&path);
+        return Err(ScreenError::Failed(if stderr.is_empty() {
+            "screencapture exited with an error; check the Screen Recording permission".to_string()
+        } else {
+            stderr
+        }));
+    }
+
+    let frame = png_file_to_data_url(&path);
+    // The temp file is ours; never leave it behind.
+    let _ = std::fs::remove_file(&path);
+    frame
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn capture_via_screencapture() -> Result<CapturedFrame, ScreenError> {
+    Err(ScreenError::Unavailable(
+        "screencapture is macOS-only".to_string(),
+    ))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

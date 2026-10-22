@@ -512,11 +512,49 @@ pub fn trigger_snipping_and_show(app: &AppHandle) {
         };
         match capture::capture_screen() {
             Ok(cap) => {
-                let _ = window.set_position(PhysicalPosition::new(cap.geometry.x, cap.geometry.y));
-                let _ = window.set_size(PhysicalSize::new(cap.geometry.width, cap.geometry.height));
-                let _ = window.emit("glint-snipping-capture", &cap);
+                // Same payload shape as the Linux branch: the frontend crops
+                // 1:1 from the capture using the overlay's real geometry,
+                // which the compositor may shrink (menu bar on macOS).
+                let (gx, gy) = (cap.geometry.x, cap.geometry.y);
+                let (gw, gh) = (cap.geometry.width, cap.geometry.height);
+                let _ = window.set_position(PhysicalPosition::new(gx, gy));
+                let _ = window.set_size(PhysicalSize::new(gw, gh));
+
+                let payload = serde_json::json!({
+                    "image_data_url": cap.image_data_url,
+                    "capture": {
+                        "width": gw,
+                        "height": gh,
+                        "origin_x": gx,
+                        "origin_y": gy
+                    },
+                    "monitor": {
+                        "x": gx,
+                        "y": gy,
+                        "width": gw,
+                        "height": gh
+                    },
+                    "window_title": cap.window_title
+                });
+                let _ = window.emit("glint-snipping-capture", &payload);
                 let _ = window.show();
                 let _ = window.set_focus();
+
+                let verify = window.clone();
+                tauri::async_runtime::spawn(async move {
+                    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+                    if let (Ok(pos), Ok(size)) = (verify.outer_position(), verify.outer_size()) {
+                        let _ = verify.emit(
+                            "glint-snipping-geometry",
+                            serde_json::json!({
+                                "x": pos.x,
+                                "y": pos.y,
+                                "width": size.width,
+                                "height": size.height
+                            }),
+                        );
+                    }
+                });
             }
             Err(e) => {
                 eprintln!("[Glint] 截屏错误: {}", e);

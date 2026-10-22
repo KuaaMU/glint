@@ -29,7 +29,9 @@ pub use hotkey::{
 pub use llm::{
     ChatMessage, QueryRequest, StreamChunk, StreamSink, build_api_payload, stream_explanation,
 };
-pub use screen::{CapturedFrame, ScreenError, capture_via_portal, png_file_to_data_url};
+pub use screen::{
+    CapturedFrame, ScreenError, capture_via_portal, capture_via_screencapture, png_file_to_data_url,
+};
 pub use selection::{
     CaptureError, MAX_CHARS, MAX_RAW_BYTES, READ_TIMEOUT_MS, SelectionCandidate, SelectionSensor,
     SelectionSource, normalize_selection, platform_sensor,

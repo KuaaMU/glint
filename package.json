@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "test": "node --experimental-strip-types src/safe-markdown.test.ts && node --experimental-strip-types src/safe-markdown.challenge.test.ts && node --experimental-strip-types src/generative-ui.test.ts && node --experimental-strip-types src/history-store.test.ts",
+    "test": "node --experimental-strip-types src/safe-markdown.test.ts && node --experimental-strip-types src/safe-markdown.challenge.test.ts && node --experimental-strip-types src/generative-ui.test.ts && node --experimental-strip-types src/history-store.test.ts && node --experimental-strip-types src/recall.test.ts",
     "test:contract": "node tests/e2e_runner.mjs",
     "check": "npm run test && npm run test:contract && npm run build",
     "tauri": "tauri"

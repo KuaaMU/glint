@@ -23,13 +23,14 @@ import {
   SRC_DIR,
   SRC_TAURI_DIR,
   GLINT_CORE_DIR,
+  CRATES_DIR,
   README_PATH,
   GLINT_HUD_DIR,
   CONSTANTS,
   SKIP_SHELL,
 } from "./test_config.mjs";
 
-export const tier1Suite = new TestRegistry("Tier 1: Feature Coverage (F1 - F18)");
+export const tier1Suite = new TestRegistry("Tier 1: Feature Coverage (F1 - F19)");
 
 /// Read a module from the headless core, where the engine now lives.
 function readCoreSource(fileName) {
@@ -1173,4 +1174,50 @@ tier1Suite.test(
     assert.ok(fs.existsSync(path.join(SRC_DIR, "main.ts")));
   },
   { milestone: "M4", feature: "F18" }
+);
+
+// ==========================================
+// Feature 19: Local recall echo
+// ==========================================
+tier1Suite.test(
+  "F19-TC1: glint-recall is a workspace member and indexes turns with FTS5",
+  async () => {
+    assert.ok(
+      fs.existsSync(path.join(CRATES_DIR, "glint-recall", "Cargo.toml")),
+      "crates/glint-recall/Cargo.toml must exist"
+    );
+    const root = fs.readFileSync(path.join(PROJECT_ROOT, "Cargo.toml"), "utf-8");
+    assert.match(root, /crates\/glint-recall/);
+    const lib = fs.readFileSync(path.join(CRATES_DIR, "glint-recall", "src", "lib.rs"), "utf-8");
+    assert.match(lib, /CREATE VIRTUAL TABLE IF NOT EXISTS turns_fts USING fts5/);
+    assert.match(lib, /content\s*=\s*'turns'/);
+  },
+  { milestone: "M5", feature: "F19" }
+);
+
+tier1Suite.test(
+  "F19-TC2: Tauri exposes the recall commands",
+  async () => {
+    const lib = fs.readFileSync(path.join(SRC_TAURI_DIR, "src", "lib.rs"), "utf-8");
+    for (const command of [
+      "recall_find_echo",
+      "recall_record_turn",
+      "recall_forget_thread",
+      "recall_wipe",
+    ]) {
+      assert.ok(lib.includes(command), `src-tauri must register ${command}`);
+    }
+  },
+  { milestone: "M5", feature: "F19" }
+);
+
+tier1Suite.test(
+  "F19-TC3: The HUD has one echo line and no empty state",
+  async () => {
+    const html = fs.readFileSync(path.join(PROJECT_ROOT, "index.html"), "utf-8");
+    assert.match(html, /id="echo-line"/);
+    const main = fs.readFileSync(path.join(SRC_DIR, "main.ts"), "utf-8");
+    assert.match(main, /echoQuery/);
+  },
+  { milestone: "M5", feature: "F19" }
 );

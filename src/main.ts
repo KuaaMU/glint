@@ -11,6 +11,13 @@ import {
   type ToolCallPayload,
 } from "./history-store.ts";
 import { StreamingRenderPipeline } from "./streaming-pipeline.ts";
+import {
+  conclusionFrom,
+  echoLineText,
+  sanitizeEchoText,
+  withPriorAnswer,
+  type RecallEcho,
+} from "./recall.ts";
 
 export type GlintTheme = "dark" | "aurora" | "amethyst" | "epaper";
 
@@ -68,6 +75,7 @@ const btnClearHistory = document.getElementById("btn-clear-history") as HTMLButt
 
 const hostBadge = document.getElementById("host-badge") as HTMLDivElement | null;
 const hostTitle = document.getElementById("host-title") as HTMLSpanElement | null;
+const echoLine = document.getElementById("echo-line") as HTMLDivElement | null;
 const cardHandle = document.querySelector(".card-anchor-handle") as HTMLElement;
 const resizeGrip = document.getElementById("resize-grip") as HTMLElement;
 const truncationCapsule = document.getElementById("truncation-capsule") as HTMLDivElement | null;
@@ -185,6 +193,7 @@ function rememberThread(
 
 function resetThread() {
   currentThread = null;
+  renderEchoLine(null);
 }
 
 /** 线索分隔条：让「续接」这件事始终可见，绝不静默。 */
@@ -235,12 +244,73 @@ function getMessageDisplaySummary(content: MessageContent): string {
   return textPart ? textPart.text : "【屏幕截图与标注】";
 }
 
+// ── 回声 (echo) ──────────────────────────────────────────────────────
+// 同一概念在别的线索里问过时，在宿主徽标下多一行来源。一次只给一条；
+// 未命中时整行不渲染，也没有「暂无历史」这种空状态。判定与清洗规则在
+// `recall.ts`，这里只负责 IPC 与 DOM。
+
+async function fetchEcho(
+  text: string,
+  threadId: string,
+  docKey: string | null
+): Promise<RecallEcho | null> {
+  if (!isTauri()) return null;
+  try {
+    return await invoke<RecallEcho | null>("recall_find_echo", {
+      query: text,
+      threadId,
+      docKey,
+    });
+  } catch {
+    // 回声只是增强；它失败时这一轮必须照常回答。
+    return null;
+  }
+}
+
+function renderEchoLine(echo: RecallEcho | null) {
+  if (!echoLine) return;
+  if (!echo) {
+    echoLine.style.display = "none";
+    echoLine.textContent = "";
+    return;
+  }
+
+  echoLine.textContent = echoLineText(echo);
+  echoLine.style.display = "block";
+}
+
+function recordRecallTurn(anchor: string, answer: string) {
+  if (!isTauri()) return;
+
+  const cleanAnchor = sanitizeEchoText(anchor).slice(0, 200);
+  const conclusion = conclusionFrom(answer);
+  if (!cleanAnchor || !conclusion) return;
+
+  void invoke("recall_record_turn", {
+    turn: {
+      thread_id: currentSessionId || "",
+      app_class: (currentThread?.appClass || "").trim().toLowerCase(),
+      doc_key: currentThread?.docKey ?? null,
+      anchor: cleanAnchor,
+      conclusion,
+      follow_up: null,
+      completed_at_ms: Date.now(),
+    },
+  }).catch(() => {
+    // 记不上不影响这一轮：答案已经在屏幕上了。
+  });
+}
+
 // 执行流式解释查询并绑定当前会话
 async function executeExplain(
   messages: ChatMessage[],
   sessionId: number,
   targetElementOverride?: HTMLElement,
-  options?: { label?: string }
+  options?: {
+    label?: string;
+    echoQuery?: { text: string; threadId: string; docKey: string | null };
+    recordAnchor?: string;
+  }
 ) {
   if (sessionId !== activeSessionId) return;
 
@@ -274,6 +344,22 @@ async function executeExplain(
   activePipeline = pipeline;
   pipeline.beginTurn({ targetOverride: targetOutputEl });
 
+  // 回声查询必须在请求发出前完成：命中就多一行来源，并把旧结论作为数据块
+  // 附在本轮消息上。未命中时整行不渲染，也不影响这一轮。
+  let echo: RecallEcho | null = null;
+  if (options?.echoQuery) {
+    echo = await fetchEcho(
+      options.echoQuery.text,
+      options.echoQuery.threadId,
+      options.echoQuery.docKey
+    );
+    if (sessionId !== activeSessionId) {
+      finishTurn();
+      return;
+    }
+    renderEchoLine(echo);
+  }
+
   onEvent.onmessage = (chunk: StreamChunk) => {
     // 丢弃已经过期会话的消息
     if (sessionId !== activeSessionId) return;
@@ -294,6 +380,13 @@ async function executeExplain(
 
       // 持久化保存至本地历史存储
       saveCurrentSessionToHistory(fullTurnText);
+
+      // 只记成功的、有选区的轮次。追问与截图不写入回声：它们的锚点不是
+      // 用户真正划中的概念。
+      if (options?.recordAnchor) {
+        recordRecallTurn(options.recordAnchor, fullTurnText);
+      }
+
       finishTurn();
     } else if (chunk.type === "Error") {
       statusIndicator.style.display = "none";
@@ -304,7 +397,9 @@ async function executeExplain(
   };
 
   const req: QueryRequest = {
-    messages,
+    // 回声只进入这一次请求。conversationMessages 本身保持干净，否则它会
+    // 出现在卡片里，也会被写进历史存储。
+    messages: echo ? withPriorAnswer(messages, echo) : messages,
     api_key: getStoredSetting("glint_api_key", ""),
     base_url: getStoredSetting("glint_base_url", "https://api.deepseek.com/v1"),
     model: getStoredSetting("glint_model", "deepseek-chat"),
@@ -505,11 +600,24 @@ function startNewQuery(
       resetThread();
       frozenHostLabel = hostLabelFor(windowTitle ?? null, identity.appClass);
       conversationMessages = [{ role: "user", content: truncatedResult.text }];
-      executeExplain(conversationMessages, activeSessionId);
+      executeExplain(conversationMessages, activeSessionId, undefined, {
+        echoQuery: {
+          text: truncatedResult.text,
+          threadId: currentSessionId,
+          docKey: identity.docKey,
+        },
+        recordAnchor: truncatedResult.text,
+      });
     } else {
       conversationMessages.push({ role: "user", content: truncatedResult.text });
       executeExplain(conversationMessages, activeSessionId, undefined, {
         label: `再次划词 · 第 ${(currentThread?.turnCount ?? 0) + 1} 轮`,
+        echoQuery: {
+          text: truncatedResult.text,
+          threadId: currentSessionId,
+          docKey: identity.docKey,
+        },
+        recordAnchor: truncatedResult.text,
       });
     }
 
@@ -792,6 +900,11 @@ function renderHistoryList(filterKeyword?: string) {
     delBtn.addEventListener("click", (e) => {
       e.stopPropagation();
       HistoryStore.delete(sess.id);
+      // 删除会话时同步清掉它留下的回声，否则下次划到同一概念，这条
+      // 已经删掉的结论还会冒出来。
+      if (isTauri()) {
+        void invoke("recall_forget_thread", { threadId: sess.id }).catch(() => {});
+      }
       renderHistoryList(historySearchInput?.value);
     });
 
@@ -916,6 +1029,9 @@ if (btnClearHistory) {
   btnClearHistory.addEventListener("click", () => {
     if (confirm("确定清空全部历史会话记录吗？")) {
       HistoryStore.clear();
+      if (isTauri()) {
+        void invoke("recall_wipe").catch(() => {});
+      }
       renderHistoryList();
     }
   });

@@ -8,6 +8,8 @@ pub mod tools;
 
 use capture::{SelectionResult, capture_selected_text, get_cursor_pos};
 use config::load_config;
+use glint_core::{SessionType, detect_session};
+use glint_recall::{Echo, RecallStore, TurnRecord};
 use llm::{QueryRequest, StreamChunk, stream_explanation};
 use preferences::{
     fetch_models, get_app_config, hide_preferences_window, open_preferences_window,
@@ -271,6 +273,35 @@ pub fn toggle_window_visibility(app: &AppHandle) {
     }
 }
 
+/// Read the current selection.
+///
+/// On a Wayland session the synthetic Ctrl+C can only reach XWayland clients.
+/// When a native Wayland window is focused, the key goes to whichever X window
+/// still holds X focus, which may be an unrelated app. PRIMARY is set by the
+/// mouse selection itself, so on Wayland it is read first. On X11 the
+/// clipboard round-trip is fresher, so it stays first there.
+fn capture_current_selection() -> Option<(String, i32, i32, Option<String>)> {
+    let from_primary = || {
+        glint_core::platform_sensor()
+            .capture()
+            .ok()
+            .map(|candidate| {
+                let (cx, cy) = get_cursor_pos();
+                (candidate.text, cx, cy, None)
+            })
+    };
+
+    let from_clipboard = || {
+        capture_selected_text().map(|res| (res.text, res.cursor_x, res.cursor_y, res.window_title))
+    };
+
+    if matches!(detect_session(), SessionType::Wayland) {
+        from_primary().or_else(from_clipboard)
+    } else {
+        from_clipboard().or_else(from_primary)
+    }
+}
+
 pub fn trigger_capture_and_show(app: &AppHandle) {
     eprintln!("[Glint] trigger_capture_and_show");
     if let Some(window) = app.get_webview_window("hud") {
@@ -279,14 +310,12 @@ pub fn trigger_capture_and_show(app: &AppHandle) {
             window.is_visible(),
             window.outer_size()
         );
-        let (text, cursor_x, cursor_y, window_title) = match capture_selected_text() {
-            Some(res) => (res.text, res.cursor_x, res.cursor_y, res.window_title),
-            None => {
+        let (text, cursor_x, cursor_y, window_title) =
+            capture_current_selection().unwrap_or_else(|| {
                 let (cx, cy) = get_cursor_pos();
                 let window_title = crate::platform::get_active_window_title_opt();
-                ("".to_string(), cx, cy, window_title)
-            }
-        };
+                (String::new(), cx, cy, window_title)
+            });
 
         // MUST be read before `show()`: once the HUD takes focus, KWin reports
         // "Glint" as the foreground app and every selection would look like the
@@ -621,9 +650,114 @@ fn submit_snipping_result(
     }
 }
 
+// --- Local recall (echo) ---------------------------------------------------
+//
+// Completed turns are mirrored into a SQLite file next to the app's own data,
+// so a later selection can ask "have I asked about this before?" without a
+// network round-trip. The store opens lazily: no file exists until the first
+// turn is recorded, and `recall_wipe` removes it with the rest of the history.
+
+/// How old a turn about the *same* document must be before it can echo. Asking
+/// the same question twice in one sitting is not a memory worth surfacing.
+const SAME_DOCUMENT_ECHO_MIN_AGE_MS: i64 = 24 * 60 * 60 * 1000;
+
+#[derive(Default)]
+struct RecallState {
+    store: std::sync::Mutex<Option<RecallStore>>,
+}
+
+impl RecallState {
+    fn with_store<T>(
+        &self,
+        app: &AppHandle,
+        run: impl FnOnce(&mut RecallStore) -> Result<T, glint_recall::RecallError>,
+    ) -> Result<T, String> {
+        let mut guard = self
+            .store
+            .lock()
+            .map_err(|_| "recall state poisoned".to_string())?;
+
+        if guard.is_none() {
+            let store = RecallStore::open(&recall_db_path(app)?).map_err(|err| err.to_string())?;
+            *guard = Some(store);
+        }
+
+        let store = guard.as_mut().expect("store initialized above");
+        run(store).map_err(|err| err.to_string())
+    }
+}
+
+fn recall_db_path(app: &AppHandle) -> Result<std::path::PathBuf, String> {
+    let dir = app.path().app_data_dir().map_err(|err| err.to_string())?;
+    Ok(dir.join("recall.sqlite3"))
+}
+
+fn unix_now_ms() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|elapsed| elapsed.as_millis() as i64)
+        .unwrap_or(0)
+}
+
+#[tauri::command]
+fn recall_find_echo(
+    app: AppHandle,
+    state: tauri::State<'_, RecallState>,
+    query: String,
+    thread_id: String,
+    doc_key: Option<String>,
+) -> Result<Option<Echo>, String> {
+    // Never create the store just because the user selected something: an
+    // empty database is still a file on disk.
+    if !recall_db_path(&app)?.exists() {
+        return Ok(None);
+    }
+
+    let ctx = glint_recall::EchoContext {
+        current_thread_id: thread_id,
+        current_doc_key: doc_key,
+        now_ms: unix_now_ms(),
+        min_age_ms: SAME_DOCUMENT_ECHO_MIN_AGE_MS,
+    };
+
+    state.with_store(&app, |store| store.find_echo(&query, &ctx))
+}
+
+#[tauri::command]
+fn recall_record_turn(
+    app: AppHandle,
+    state: tauri::State<'_, RecallState>,
+    turn: TurnRecord,
+) -> Result<(), String> {
+    state.with_store(&app, |store| store.record_turn(turn))
+}
+
+#[tauri::command]
+fn recall_forget_thread(
+    app: AppHandle,
+    state: tauri::State<'_, RecallState>,
+    thread_id: String,
+) -> Result<(), String> {
+    state.with_store(&app, |store| store.forget_thread(&thread_id).map(|_| ()))
+}
+
+#[tauri::command]
+fn recall_wipe(app: AppHandle, state: tauri::State<'_, RecallState>) -> Result<(), String> {
+    {
+        let mut guard = state
+            .store
+            .lock()
+            .map_err(|_| "recall state poisoned".to_string())?;
+        *guard = None;
+    }
+
+    RecallStore::wipe(&recall_db_path(&app)?).map_err(|err| err.to_string())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .manage(RecallState::default())
         // 关键防御：单实例守卫 (Single Instance Guard)。
         // 杜绝重复打开进程导致任务栏托盘出现多个冗余图标，重复启动时直接激活并聚焦已有视窗。
         .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
@@ -764,7 +898,11 @@ pub fn run() {
             test_llm_connection,
             open_snipping_tool,
             close_snipping_tool,
-            submit_snipping_result
+            submit_snipping_result,
+            recall_find_echo,
+            recall_record_turn,
+            recall_forget_thread,
+            recall_wipe
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

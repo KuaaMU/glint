@@ -1,0 +1,18 @@
+[package]
+name = "glint-recall"
+version = "0.1.0"
+description = "Glint Recall - local turn memory and selection-time echo"
+authors = ["glint-dev"]
+edition = "2024"
+
+[lib]
+name = "glint_recall"
+path = "src/lib.rs"
+
+[dependencies]
+rusqlite = { version = "0.40", features = ["bundled"] }
+serde = { version = "1", features = ["derive"] }
+thiserror = "2"
+
+[dev-dependencies]
+tempfile = "3"

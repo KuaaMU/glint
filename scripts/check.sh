@@ -26,6 +26,12 @@ done
 echo "==> cargo test (core)"
 cargo test -p glint-core
 
+echo "==> cargo clippy (recall)"
+cargo clippy -p glint-recall --all-targets -- -D warnings
+
+echo "==> cargo test (recall)"
+cargo test -p glint-recall
+
 echo "==> cargo clippy (shell)"
 cargo clippy -p glint --all-targets -- -D warnings
 

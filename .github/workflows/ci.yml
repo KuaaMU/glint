@@ -53,7 +53,9 @@ jobs:
       - name: Production build
         run: pnpm build
 
-  # glint-core has no GUI dependencies, so it can be tested everywhere.
+  # glint-core and glint-recall have no GUI dependencies, so they can be
+  # tested everywhere. glint-recall compiles bundled SQLite, which is the point
+  # of running it on all three platforms.
   core:
     name: Core (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
@@ -66,6 +68,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - run: cargo test -p glint-core
+      - run: cargo test -p glint-recall
 
   # The Tauri shell is where platform-specific code actually breaks. Linux is
   # the mainline; Windows/macOS are checked but not yet shipped.

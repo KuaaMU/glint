@@ -248,6 +248,22 @@ html, body {
   background-color: var(--accent-cyan);
 }
 
+/* 回声行：一次命中只占一行；未命中时整行不出现，也没有空状态。 */
+.echo-line {
+  margin: 0 12px 6px 12px;
+  padding: 4px 9px;
+  border-left: 2px solid rgba(129, 140, 248, 0.5);
+  background: rgba(129, 140, 248, 0.07);
+  border-radius: 0 6px 6px 0;
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.45;
+  letter-spacing: 0.1px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 /* 玻璃图标按钮 */
 .glass-icon-btn {
   width: 24px;

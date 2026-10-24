@@ -60,6 +60,7 @@ X11 会话                    → XGrabKey
 - X11：`x11rb` 读 PRIMARY。
 - AT-SPI `TextProxy` 仅作补充；Chromium/终端常不暴露。
 - **不合成 Ctrl+C**；确需按键回写时走 RemoteDesktop/libei + `reis`。
+- 当前实现（`src-tauri/src/lib.rs::capture_current_selection`）：Wayland 会话先读 PRIMARY，失败才回退到 XWayland 的 Ctrl+C；X11 会话反过来。原因是原生 Wayland 窗口收不到 X 合成按键，此时 Ctrl+C 可能落到上一个仍有 X 焦点的窗口，读到无关文本。X11 回退需要 `xdotool`，缺失时只走 PRIMARY。
 - 读取顺序：先捕获选区，再显示/聚焦 HUD。
 - 读取超时 150 ms，原始上限 64 KB，再做 3000 字符 Unicode 截断。
 - 失败返回明确的 `CaptureError`，不显示上一轮旧文本。
